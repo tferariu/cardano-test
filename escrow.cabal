@@ -34,8 +34,9 @@ common lang
 library
   import:             lang
   exposed-modules:
-    Contract.Escrow
-    Spec.Escrow
+  --  Contract.Escrow
+  --  Spec.Escrow
+    Contract.MultiSig
 
   hs-source-dirs:     src
                       tests

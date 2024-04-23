@@ -65,11 +65,11 @@ import Cardano.Node.Emulator.Test (testnet)
 
 import Data.Maybe --(fromJust)
 import Ledger qualified
-import Ledger (Lovelace, POSIXTime, getPOSIXTime, PaymentPubKeyHash (unPaymentPubKeyHash), TxId, getCardanoTxId)
+import Ledger (Lovelace, PaymentPubKeyHash (unPaymentPubKeyHash), TxId, getCardanoTxId)
 import Ledger.Tx.CardanoAPI qualified as C
 import Ledger.Typed.Scripts (validatorCardanoAddress)
 import Ledger.Typed.Scripts qualified as Scripts
-import Plutus.Script.Utils.Scripts (ValidatorHash, datumHash)
+import Plutus.Script.Utils.Scripts --(ValidatorHash, datumHash)
 import Plutus.Script.Utils.V2.Contexts (
   ScriptContext (ScriptContext, scriptContextTxInfo),
   TxInfo,
@@ -77,7 +77,7 @@ import Plutus.Script.Utils.V2.Contexts (
   txInfoValidRange,
   txSignedBy,
  )
-import Plutus.Script.Utils.V2.Typed.Scripts --qualified as V2
+import Plutus.Script.Utils.V2.Typed.Scripts --qualified as V2 --HERE!!
 import Plutus.Script.Utils.Value --(Value, geq, lt, AssetClass)
 import PlutusLedgerApi.V1.Interval qualified as Ival
 import PlutusLedgerApi.V2 --(Datum (Datum), OutputDatum(..))
@@ -124,15 +124,9 @@ import PlutusLedgerApi.V1.Interval qualified as Ival
 -}
 
 
-minVal :: Lovelace
+minVal :: Integer --Lovelace
 minVal = 2000000
 
-{-
-{-# INLINABLE lovelaceValue #-}
--- | A 'Value' containing the given quantity of Lovelace.
-lovelaceValue :: Lovelace -> Value
-lovelaceValue = singleton adaSymbol adaToken . getLovelace
--}
 
 type Deadline = Integer
 
@@ -167,9 +161,9 @@ instance Eq State where
 
 
 data Input = Propose Value PaymentPubKeyHash Deadline
-              | Add PaymentPubKeyHash
-              | Pay
-              | Cancel
+           | Add PaymentPubKeyHash
+           | Pay
+           | Cancel
           deriving (Show, Generic)
 
 
@@ -208,14 +202,17 @@ PlutusTx.makeLift ''Params
 
 
 
+{-# INLINABLE lovelaceValue #-}
+-- | A 'Value' containing the given quantity of Lovelace.
+lovelaceValue :: Integer -> Value
+lovelaceValue = singleton adaSymbol adaToken
 
 
-
-{-
 {-# INLINABLE lovelaces #-}
 lovelaces :: Value -> Integer
-lovelaces = getLovelace . fromValue
--}
+lovelaces v = assetClassValueOf v (AssetClass (adaSymbol, adaToken))
+--getLovelace . fromValue
+
 
 {-# INLINABLE getVal #-}
 getVal :: TxOut -> AssetClass -> Integer
@@ -275,9 +272,7 @@ newValue ctx = txOutValue (ownOutput ctx)
 
 {-# INLINABLE expired #-}
 expired :: Deadline -> TxInfo -> Bool
-expired d info = True
--- Ival.before ((Legder.POSIXTime {getPOSIXTime = d})) (txInfoValidRange info)
-
+expired d info = Ival.before ((POSIXTime {getPOSIXTime = d})) (txInfoValidRange info)
 
 {-# INLINABLE checkSigned #-}
 checkSigned :: PaymentPubKeyHash -> ScriptContext -> Bool
@@ -286,7 +281,7 @@ checkSigned pkh ctx = txSignedBy (scriptContextTxInfo ctx) (unPaymentPubKeyHash 
 {-# INLINABLE checkPayment #-}
 checkPayment :: PaymentPubKeyHash -> Value -> TxInfo -> Bool
 checkPayment pkh v info = case filter (\i -> (txOutAddress i == (pubKeyHashAddress (unPaymentPubKeyHash pkh)))) (txInfoOutputs info) of
-    os -> True -- any (\o -> txOutValue o == (v <> (lovelaceValue minVal))) os
+    os -> any (\o -> txOutValue o == (v <> (lovelaceValue minVal))) os
 
 
 {-# INLINABLE agdaValidator #-}
@@ -342,7 +337,106 @@ mkValidator param st red ctx =
     traceIfFalse "failed validation" (agdaValidator param (label st) red ctx)
 
 
+data MultiSig
+instance Scripts.ValidatorTypes MultiSig where
+  type RedeemerType MultiSig = Input
+  type DatumType MultiSig = State
 
+
+typedValidator :: Params -> TypedValidator MultiSig
+typedValidator = go
+  where
+    go =
+      mkTypedValidatorParam @MultiSig
+        $$(PlutusTx.compile [||mkValidator||])
+        $$(PlutusTx.compile [||wrap||])
+    wrap = Scripts.mkUntypedValidator -- @ScriptContext @State @Input
+
+mkAddress :: Params -> Ledger.CardanoAddress
+mkAddress = validatorCardanoAddress testnet . typedValidator
+
+
+-- propose add pay cancel
+{-
+mkProposeTx
+  :: (E.MonadEmulator m)
+  => Params
+  -> Value
+  -> PaymentPubKeyHash
+  -> Deadline
+  -> m (C.CardanoBuildTx, Ledger.UtxoIndex)
+mkProposeTx params val pkh d = do
+  let scAddr = mkAddress params
+  unspentOutputs <- E.utxosAt scAddr
+  slotConfig <- asks pSlotConfig
+
+  if 
+
+  current <- fst <$> E.currentTimeRange
+  if current >= escrowDeadline escrow
+    then throwError $ E.CustomError $ show (RedeemFailed DeadlinePassed)
+    else
+      if C.fromCardanoValue (foldMap Ledger.cardanoTxOutValue (C.unUTxO unspentOutputs))
+        `lt` targetTotal escrow
+        then throwError $ E.CustomError $ show (RedeemFailed NotEnoughFundsAtAddress)
+        else
+          let
+            validityRange = toValidityRange slotConfig $ Interval.to $ escrowDeadline escrow - 1000
+            txOuts = map mkTxOutput (escrowTargets escrow)
+            witnessHeader =
+              C.toCardanoTxInScriptWitnessHeader
+                (Ledger.getValidator <$> Scripts.vValidatorScript (typedValidator escrow))
+            redeemer = toHashableScriptData Redeem
+            witness =
+              C.BuildTxWith $
+                C.ScriptWitness C.ScriptWitnessForSpending $
+                  witnessHeader C.InlineScriptDatum redeemer C.zeroExecutionUnits
+            txIns = (,witness) <$> Map.keys (C.unUTxO unspentOutputs)
+            utx =
+              E.emptyTxBodyContent
+                { C.txIns = txIns
+                , C.txOuts = txOuts
+                , C.txValidityLowerBound = fst validityRange
+                , C.txValidityUpperBound = snd validityRange
+                }
+           in
+            pure (C.CardanoBuildTx utx, unspentOutputs)
+-}
+
+
+
+-- Thread Token
+{-# INLINABLE mkPolicy #-}
+mkPolicy :: Address -> TxOutRef -> TokenName -> () -> ScriptContext -> Bool
+mkPolicy addr oref tn () ctx = traceIfFalse "UTxO not consumed"   hasUTxO                  &&
+                          traceIfFalse "wrong amount minted" checkMintedAmount
+  where
+    info :: TxInfo
+    info = scriptContextTxInfo ctx
+
+    cs :: CurrencySymbol
+    cs = ownCurrencySymbol ctx
+
+    hasUTxO :: Bool
+    hasUTxO = any (\i -> txInInfoOutRef i == oref) $ txInfoInputs info
+
+    checkMintedAmount :: Bool
+    checkMintedAmount = case flattenValue (txInfoMint info) of
+        [(_, tn', amt)] -> tn' == tn && amt == 1
+        _               -> False
+
+{-
+policy :: Params -> TxOutRef -> TokenName -> MintingPolicy
+policy param oref tn = mkMintingPolicyScript $
+    $$(PlutusTx.compile [|| \addr' oref' tn' ->  mkPolicy addr' oref' tn' ||])
+    `PlutusTx.applyCode`
+    PlutusTx.liftCode (mkAddress param)
+    `PlutusTx.applyCode`
+    PlutusTx.liftCode oref
+    `PlutusTx.applyCode`
+    PlutusTx.liftCode tn
+-}
+{-
 
 {-# INLINEABLE mkUntypedValidator #-}
 mkUntypedValidator :: Params -> BuiltinData -> BuiltinData -> BuiltinData -> ()
@@ -355,7 +449,6 @@ mkUntypedValidator param datum redeemer ctx =
         (PlutusTx.unsafeFromBuiltinData ctx)
     )
 
-{-
 smValidatorScript ::
   Params ->
   CompiledCode (BuiltinData -> BuiltinData -> BuiltinData -> ())
@@ -363,6 +456,15 @@ smValidatorScript params =
   ($$(PlutusTx.compile [||mkUntypedValidator||])
     `PlutusTx.unsafeApplyCode` PlutusTx.liftCode plcVersion100 params)
 -}
+
+{-
+curSymbol :: Params -> TxOutRef -> TokenName -> CurrencySymbol
+curSymbol param oref tn = Scripts.scriptCurrencySymbol $ policy param oref tn
+-}
+
+------------------------------------------------------------------------
+
+
 
 {-
 
