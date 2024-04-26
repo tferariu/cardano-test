@@ -13,37 +13,35 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoImplicitPrelude     #-}
 {-# OPTIONS_GHC -g -fplugin-opt PlutusTx.Plugin:coverage-all #-}
 
 module Contract.MultiSig (
   -- $escrow
-  Escrow,
-  EscrowError (..),
-  AsEscrowError (..),
-  EscrowParams (..),
-  EscrowTarget (..),
-  payToScriptTarget,
-  payToPaymentPubKeyTarget,
-  targetTotal,
-  payRedeemRefund,
-  typedValidator,
-
+  State (..),
+  Params (..),
+{--}
+  smTypedValidator,
+  mkAddress,
+  insert,
+{-
   -- * Actions
+  propose,
+  add,
   pay,
-  redeem,
-  refund,
-  badRefund,
-  RedeemFailReason (..),
-  RedeemSuccess (..),
-  RefundSuccess (..),
-
+  cancel,
+  start,
+  TxSuccess (..),
+  -}
   -- * Exposed for test endpoints
-  Action (..),
+  Input (..),
   Datum,
-  validate,
+  Deadline,
+  Label (..),
+  mkValidator,
 
   -- * Coverage
-  covIdx,
+  covIdx, 
 ) where
 
 import Control.Lens (makeClassyPrisms)
@@ -60,6 +58,8 @@ import PlutusTx.Code (getCovIdx)
 import PlutusTx.Coverage (CoverageIndex)
 import PlutusTx.Prelude (traceError, traceIfFalse)
 import PlutusTx.Prelude qualified as PlutusTx
+import PlutusTx.Prelude --(Eq, Bool, Integer)
+--import PlutusTx
 
 import Cardano.Node.Emulator qualified as E
 import Cardano.Node.Emulator.Internal.Node (
@@ -91,6 +91,7 @@ import PlutusLedgerApi.V2 hiding (TxId)--(Datum (Datum))
 import PlutusLedgerApi.V2.Contexts hiding (TxId)--(valuePaidTo)
 import PlutusLedgerApi.V2.Tx hiding (TxId)--(OutputDatum (OutputDatum))
 
+import           Prelude              (Show (..), String)
 
 minVal :: Integer --Lovelace
 minVal = 2000000
@@ -324,6 +325,11 @@ mkAddress = validatorCardanoAddress testnet . smTypedValidator
 
 -------------------------------------------------------------------------
 
+{-
+show' :: C.ToCardanoError -> ()
+show' s = ()
+-}
+{-
 toTxOutValue :: Value -> C.TxOutValue C.BabbageEra
 toTxOutValue = either (error . show) C.toCardanoTxOutValue . C.toCardanoValue
 
@@ -349,11 +355,8 @@ mkProposeTx
   -> Deadline
   -> AssetClass
   -> m (C.CardanoBuildTx, Ledger.UtxoIndex)
-
-
 mkProposeTx params val pkh d tt = do
   let smAddress = mkAddress params
-
   unspentOutputs <- E.utxosAt smAddress
   slotConfig <- asks pSlotConfig
   current <- fst <$> E.currentTimeRange
@@ -396,56 +399,285 @@ mkProposeTx params val pkh d tt = do
         pure (C.CardanoBuildTx utx, unspentOutputs)
 
 
-{-    
-  let smAddr = mkAddress params
-  unspentOutputs <- E.utxosAt smAddr
+newtype TxSuccess = TxSuccess TxId
+  deriving (Eq, Show)
+
+
+propose
+  :: (E.MonadEmulator m)
+  => Ledger.CardanoAddress
+  -> Ledger.PaymentPrivateKey
+  -> Params
+  -> Value
+  -> PaymentPubKeyHash
+  -> Deadline
+  -> AssetClass
+  -> m TxSuccess
+propose wallet privateKey params val pkh d tt = do
+  E.logInfo @String "Proposing"
+  (utx, utxoIndex) <- mkProposeTx params val pkh d tt
+  TxSuccess . getCardanoTxId <$> E.submitTxConfirmed utxoIndex wallet [privateKey] utx
+
+
+cardanoTxOutDatum :: forall d. (FromData d) => C.TxOut C.CtxUTxO C.BabbageEra -> Maybe d
+cardanoTxOutDatum (C.TxOut _aie _tov tod _rs) =
+  case tod of
+    C.TxOutDatumNone ->
+      Nothing
+    C.TxOutDatumHash _era _scriptDataHash ->
+      Nothing
+    C.TxOutDatumInline _era scriptData ->
+      fromData @d $ C.toPlutusData $ C.getScriptData scriptData
+
+mkAddTx
+  :: (E.MonadEmulator m)
+  => Params
+  -> Ledger.CardanoAddress
+  -> AssetClass
+  -> m (C.CardanoBuildTx, Ledger.UtxoIndex)
+mkAddTx params wallet tt = do
+  let smAddress = mkAddress params
+      pkh = Ledger.PaymentPubKeyHash $ fromJust $ Ledger.cardanoPubKeyHash wallet
+  unspentOutputs <- E.utxosAt smAddress
   slotConfig <- asks pSlotConfig
   current <- fst <$> E.currentTimeRange
-
   let
-            st = State
-                     { label  = Collecting val pkh d []
-                      , tToken = tt
-                     }
-            smUnspentOutputs = Map.keys $
-                Map.filter (\(C.TxOut _aie tov _tod _rs) -> 
-                (assetClassValueOf (C.fromCardanoValue (C.fromCardanoTxOutValue tov)) 
-                tt == 1)) $ C.unUTxO unspentOutputs
+    validUnspentOutputs =
+          Map.filter (\(C.TxOut _aie tov _tod _rs) -> 
+            (assetClassValueOf (C.fromCardanoValue (C.fromCardanoTxOutValue tov)) 
+            tt == 1)) $ C.unUTxO unspentOutputs
+  when (length (validUnspentOutputs) /= 1)
+    $ throwError $ E.CustomError $ "not SM" 
+  let
+    --currentlyLocked = C.fromCardanoValue (foldMap Ledger.cardanoTxOutValue (C.unUTxO unspentOutputs)) --old
+    remainingValue = C.fromCardanoValue (foldMap Ledger.cardanoTxOutValue validUnspentOutputs)
+    extraKeyWit = either (error . show) id $ C.toCardanoPaymentKeyHash pkh
+    datums = map (cardanoTxOutDatum @State) (Map.elems validUnspentOutputs)
+    datum = case datums of
+                    (Just (State {label = Collecting v pkh' d sigs, tToken = tt})) : _ -> 
+                        State {label = Collecting v pkh' d (insert pkh sigs), tToken = tt}
+                    otherwise -> State {label = Holding, tToken = tt} 
 
-            pkhDatumHash = datumHash $ Datum $ PlutusTx.toBuiltinData pkh
-            ownUnspentOutputs =
-                Map.keys $
-                Map.filter (\(C.TxOut _aie _tov tod _rs) -> 
-                C.fromCardanoTxOutDatumHash' tod == Just pkhDatumHash) $
-                C.unUTxO unspentOutputs
+    --datum = State {label = Holding, tToken = tt}
+    --newDatum = C.unsafeHashableScriptData $ C.fromPlutusData $ PlutusTx.toData $ 
+    --            (State {label = Collecting val pkh d [], tToken = tt})
+        -- get actual datum!!
+    remainingOutputs = [ C.TxOut smAddress (toTxOutValue remainingValue) (toTxOutInlineDatum datum) C.ReferenceScriptNone ]
 
-            validityRange = toValidityRange slotConfig $ Interval.from $ current
-            --txOut = C.TxOut smAddr tov (toTxOutInlineDatum st) C.ReferenceScriptNone
-            witnessHeader =
-              C.toCardanoTxInScriptWitnessHeader
-                (Ledger.getValidator <$> Scripts.vValidatorScript (smTypedValidator params))
-            redeemer = toHashableScriptData (Propose val pkh d)
-            witness =
-              C.BuildTxWith $
-                C.ScriptWitness C.ScriptWitnessForSpending $
-                  witnessHeader C.InlineScriptDatum redeemer C.zeroExecutionUnits
-            txIns = (,witness) <$> smUnspentOutputs 
-            utx =
-              E.emptyTxBodyContent
-                { C.txIns = txIns
-                , C.txOuts = Map.elems (C.unUTxO unspentOutputs)
-                , C.txValidityLowerBound = fst validityRange
-                , C.txValidityUpperBound = snd validityRange
-                }
-    in case smUnspentOutputs of 
-        [] -> throwError $ E.CustomError $ show "no contract"
-        [x] -> pure (C.CardanoBuildTx utx, unspentOutputs)
-        (x : xs) -> throwError $ E.CustomError $ show ">1 contract"
-   
+    validityRange = toValidityRange slotConfig $ Interval.from current
+    redeemer = toHashableScriptData (Add pkh)
+    witnessHeader =
+        C.toCardanoTxInScriptWitnessHeader
+          (Ledger.getValidator <$> Scripts.vValidatorScript (smTypedValidator params))
+    witness =
+        C.BuildTxWith $
+          C.ScriptWitness C.ScriptWitnessForSpending $
+          witnessHeader C.InlineScriptDatum redeemer C.zeroExecutionUnits
+    
+    txIns = (,witness) <$> Map.keys validUnspentOutputs
+
+    utx =
+        E.emptyTxBodyContent
+          { C.txIns = txIns
+          , C.txOuts = remainingOutputs
+          , C.txValidityLowerBound = fst validityRange
+          , C.txValidityUpperBound = snd validityRange
+          , C.txExtraKeyWits = C.TxExtraKeyWitnesses C.AlonzoEraOnwardsBabbage [extraKeyWit]
+          }
+      in
+        pure (C.CardanoBuildTx utx, unspentOutputs)
+
+
+add
+  :: (E.MonadEmulator m)
+  => Ledger.CardanoAddress
+  -> Ledger.PaymentPrivateKey
+  -> Params
+  -> AssetClass
+  -> m TxSuccess
+add wallet privateKey params tt = do
+  E.logInfo @String "Adding"
+  (utx, utxoIndex) <- mkAddTx params wallet tt
+  TxSuccess . getCardanoTxId <$> E.submitTxConfirmed utxoIndex wallet [privateKey] utx
+
+
+toPkhAddress :: PaymentPubKeyHash -> Ledger.CardanoAddress
+toPkhAddress pkh = C.makeShelleyAddressInEra 
+                    C.shelleyBasedEra
+                    testnet
+                    (either (error . show) C.PaymentCredentialByKey $ C.toCardanoPaymentKeyHash pkh)
+                    C.NoStakeAddress
+      
+
+mkPayTx
+  :: (E.MonadEmulator m)
+  => Params
+  -> AssetClass
+  -> m (C.CardanoBuildTx, Ledger.UtxoIndex)
+mkPayTx params tt = do
+  let smAddress = mkAddress params
+  unspentOutputs <- E.utxosAt smAddress
+  slotConfig <- asks pSlotConfig
+  current <- fst <$> E.currentTimeRange
+  let
+    validUnspentOutputs =
+          Map.filter (\(C.TxOut _aie tov _tod _rs) -> 
+            (assetClassValueOf (C.fromCardanoValue (C.fromCardanoTxOutValue tov)) 
+            tt == 1)) $ C.unUTxO unspentOutputs
+  when (length (validUnspentOutputs) /= 1)
+    $ throwError $ E.CustomError $ "not SM" 
+  let
+    currentValue = C.fromCardanoValue (foldMap Ledger.cardanoTxOutValue validUnspentOutputs)
+    datums = map (cardanoTxOutDatum @State) (Map.elems validUnspentOutputs)
+    (datum, (v, pkh)) = case datums of
+                    (Just (State {label = Collecting v pkh d sigs, tToken = tt})) : _ -> 
+                        ((State {label = Holding, tToken = tt}), (v, pkh))
+                    otherwise -> ((State {label = Holding, tToken = tt}), (mempty, pkh))
+
+    remainingOutputs = [ C.TxOut smAddress (toTxOutValue (currentValue <> (PlutusTx.negate v))) (toTxOutInlineDatum datum) C.ReferenceScriptNone ,
+                         C.TxOut (toPkhAddress pkh) (toTxOutValue v) C.TxOutDatumNone C.ReferenceScriptNone] 
+
+
+
+    validityRange = toValidityRange slotConfig $ Interval.from current
+    redeemer = toHashableScriptData (Pay)
+    witnessHeader =
+        C.toCardanoTxInScriptWitnessHeader
+          (Ledger.getValidator <$> Scripts.vValidatorScript (smTypedValidator params))
+    witness =
+        C.BuildTxWith $
+          C.ScriptWitness C.ScriptWitnessForSpending $
+          witnessHeader C.InlineScriptDatum redeemer C.zeroExecutionUnits
+    
+    txIns = (,witness) <$> Map.keys validUnspentOutputs
+
+    utx =
+        E.emptyTxBodyContent
+          { C.txIns = txIns
+          , C.txOuts = remainingOutputs
+          , C.txValidityLowerBound = fst validityRange
+          , C.txValidityUpperBound = snd validityRange
+          }
+      in
+        pure (C.CardanoBuildTx utx, unspentOutputs)
+
+
+pay
+  :: (E.MonadEmulator m)
+  => Ledger.CardanoAddress
+  -> Ledger.PaymentPrivateKey
+  -> Params
+  -> AssetClass
+  -> m TxSuccess
+pay wallet privateKey params tt = do
+  E.logInfo @String "Paying"
+  (utx, utxoIndex) <- mkPayTx params tt
+  TxSuccess . getCardanoTxId <$> E.submitTxConfirmed utxoIndex wallet [privateKey] utx
+
+
+mkCancelTx
+  :: (E.MonadEmulator m)
+  => Params
+  -> AssetClass
+  -> m (C.CardanoBuildTx, Ledger.UtxoIndex)
+mkCancelTx params tt = do
+  let smAddress = mkAddress params
+  unspentOutputs <- E.utxosAt smAddress
+  slotConfig <- asks pSlotConfig
+  current <- fst <$> E.currentTimeRange
+  let
+    validUnspentOutputs =
+          Map.filter (\(C.TxOut _aie tov _tod _rs) -> 
+            (assetClassValueOf (C.fromCardanoValue (C.fromCardanoTxOutValue tov)) 
+            tt == 1)) $ C.unUTxO unspentOutputs
+  when (length (validUnspentOutputs) /= 1)
+    $ throwError $ E.CustomError $ "not SM" 
+  let
+    remainingValue = C.fromCardanoValue (foldMap Ledger.cardanoTxOutValue validUnspentOutputs)
+    datums = map (cardanoTxOutDatum @State) (Map.elems validUnspentOutputs)
+    (datum, d) = case datums of
+                    (Just (State {label = Collecting v pkh d' sigs, tToken = tt})) : _ -> 
+                        ((State {label = Holding, tToken = tt}), d')
+                    otherwise -> ((State {label = Holding, tToken = tt}), 0)
+
+    remainingOutputs = [ C.TxOut smAddress (toTxOutValue remainingValue) (toTxOutInlineDatum datum) C.ReferenceScriptNone ]
+
+    validityRange = toValidityRange slotConfig $ Interval.from (POSIXTime d) --{getPOSIXTime = d})
+    redeemer = toHashableScriptData (Cancel)
+    witnessHeader =
+        C.toCardanoTxInScriptWitnessHeader
+          (Ledger.getValidator <$> Scripts.vValidatorScript (smTypedValidator params))
+    witness =
+        C.BuildTxWith $
+          C.ScriptWitness C.ScriptWitnessForSpending $
+          witnessHeader C.InlineScriptDatum redeemer C.zeroExecutionUnits
+    
+    txIns = (,witness) <$> Map.keys validUnspentOutputs
+
+    utx =
+        E.emptyTxBodyContent
+          { C.txIns = txIns
+          , C.txOuts = remainingOutputs
+          , C.txValidityLowerBound = fst validityRange
+          , C.txValidityUpperBound = snd validityRange
+          }
+      in
+        pure (C.CardanoBuildTx utx, unspentOutputs)
+
+
+cancel
+  :: (E.MonadEmulator m)
+  => Ledger.CardanoAddress
+  -> Ledger.PaymentPrivateKey
+  -> Params
+  -> AssetClass
+  -> m TxSuccess
+cancel wallet privateKey params tt = do
+  E.logInfo @String "Cancelling"
+  (utx, utxoIndex) <- mkCancelTx params tt
+  TxSuccess . getCardanoTxId <$> E.submitTxConfirmed utxoIndex wallet [privateKey] utx
+
+
+-- | Pay some money into the escrow contract.
+mkStartTx
+  :: SlotConfig
+  -> Params
+  -> Value
+  -> AssetClass
+  -> (C.CardanoBuildTx, Ledger.UtxoIndex)
+mkStartTx slotConfig params v tt =
+  let smAddress = mkAddress params
+      txOut = C.TxOut smAddress (toTxOutValue v) (toTxOutInlineDatum (State {label = Holding, tToken = tt})) C.ReferenceScriptNone
+      validityRange = toValidityRange slotConfig $ Interval.always
+      utx =
+        E.emptyTxBodyContent
+          { C.txOuts = [txOut]
+          , C.txValidityLowerBound = fst validityRange
+          , C.txValidityUpperBound = snd validityRange
+          }
+      utxoIndex = mempty
+   in (C.CardanoBuildTx utx, utxoIndex)
+
+start
+  :: (E.MonadEmulator m)
+  => Ledger.CardanoAddress
+  -> Ledger.PaymentPrivateKey
+  -> Params
+  -> Value
+  -> AssetClass
+  -> m ()
+start wallet privateKey params v tt = do
+  E.logInfo @String $ "Starting"
+  slotConfig <- asks pSlotConfig
+  let (utx, utxoIndex) = mkStartTx slotConfig params v tt
+  void $ E.submitTxConfirmed utxoIndex wallet [privateKey] utx
+
 -}
 
+covIdx :: CoverageIndex
+covIdx = getCovIdx $$(PlutusTx.compile [||mkValidator||])
 
-
+{-
 -----------------------------------------------------------------
 
 data RedeemFailReason = DeadlinePassed | NotEnoughFundsAtAddress
@@ -824,6 +1056,54 @@ payRedeemRefund wallet privateKey escrow vl = do
   void $ pay wallet privateKey escrow vl
   go
 
-covIdx :: CoverageIndex
-covIdx = getCovIdx $$(PlutusTx.compile [||validate||])
+
+-}
 {--}
+
+{-    
+  let smAddr = mkAddress params
+  unspentOutputs <- E.utxosAt smAddr
+  slotConfig <- asks pSlotConfig
+  current <- fst <$> E.currentTimeRange
+
+  let
+            st = State
+                     { label  = Collecting val pkh d []
+                      , tToken = tt
+                     }
+            smUnspentOutputs = Map.keys $
+                Map.filter (\(C.TxOut _aie tov _tod _rs) -> 
+                (assetClassValueOf (C.fromCardanoValue (C.fromCardanoTxOutValue tov)) 
+                tt == 1)) $ C.unUTxO unspentOutputs
+
+            pkhDatumHash = datumHash $ Datum $ PlutusTx.toBuiltinData pkh
+            ownUnspentOutputs =
+                Map.keys $
+                Map.filter (\(C.TxOut _aie _tov tod _rs) -> 
+                C.fromCardanoTxOutDatumHash' tod == Just pkhDatumHash) $
+                C.unUTxO unspentOutputs
+
+            validityRange = toValidityRange slotConfig $ Interval.from $ current
+            --txOut = C.TxOut smAddr tov (toTxOutInlineDatum st) C.ReferenceScriptNone
+            witnessHeader =
+              C.toCardanoTxInScriptWitnessHeader
+                (Ledger.getValidator <$> Scripts.vValidatorScript (smTypedValidator params))
+            redeemer = toHashableScriptData (Propose val pkh d)
+            witness =
+              C.BuildTxWith $
+                C.ScriptWitness C.ScriptWitnessForSpending $
+                  witnessHeader C.InlineScriptDatum redeemer C.zeroExecutionUnits
+            txIns = (,witness) <$> smUnspentOutputs 
+            utx =
+              E.emptyTxBodyContent
+                { C.txIns = txIns
+                , C.txOuts = Map.elems (C.unUTxO unspentOutputs)
+                , C.txValidityLowerBound = fst validityRange
+                , C.txValidityUpperBound = snd validityRange
+                }
+    in case smUnspentOutputs of 
+        [] -> throwError $ E.CustomError $ show "no contract"
+        [x] -> pure (C.CardanoBuildTx utx, unspentOutputs)
+        (x : xs) -> throwError $ E.CustomError $ show ">1 contract"
+   
+-}
