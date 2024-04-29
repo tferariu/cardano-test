@@ -1,19 +1,25 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 module Spec.MultiSig (
-  {-
+  
   tests,
-  prop_Escrow,
+  {-prop_Escrow,
   prop_Escrow_DoubleSatisfaction,
   prop_FinishEscrow,
   prop_observeEscrow,
@@ -35,6 +41,7 @@ import Data.Default (Default (def))
 import Data.Foldable (Foldable (fold, length, null), sequence_)
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Maybe (fromJust)
 import GHC.Generics (Generic)
 
 import Cardano.Api.Shelley (toPlutusData)
@@ -59,20 +66,22 @@ import Ledger.Tx.CardanoAPI (fromCardanoSlotNo)
 import Ledger.Typed.Scripts qualified as Scripts
 import Ledger.Value.CardanoAPI qualified as Value
 import Plutus.Script.Utils.Ada qualified as Ada
-import Plutus.Script.Utils.Value (Value, geq, AssetClass)
+import Plutus.Script.Utils.Value (Value, geq, AssetClass, CurrencySymbol, TokenName, assetClass, assetClassValue)
 import PlutusLedgerApi.V1.Time (POSIXTime)
 
-import Contract.MultiSig {-(
-  EscrowParams (EscrowParams, escrowDeadline, escrowTargets),
-  badRefund,
+import Contract.MultiSig hiding (Input(..), Label(..))
+import Contract.MultiSigAPI (
+  --Params (..),
+  propose,
+  add,
   pay,
-  payToPaymentPubKeyTarget,
-  redeem,
-  refund,
-  typedValidator,
- )-}
-import Contract.Escrow qualified as Impl
-import PlutusTx (fromData)
+  cancel,
+  start,
+  --typedValidator,
+ )
+import Contract.MultiSig qualified as Impl
+import PlutusTx (fromData, Data)
+import PlutusTx.Prelude qualified as PlutusTx
 import PlutusTx.Monoid (inv)
 
 import Cardano.Api (
@@ -84,7 +93,10 @@ import Cardano.Api (
   TxValidityUpperBound (TxValidityUpperBound),
   UTxO (unUTxO),
   toAddressAny,
+  PolicyId (..),
+  AssetName (..)
  )
+--import Cardano.Api.Script
 import Test.QuickCheck qualified as QC hiding ((.&&.))
 import Test.QuickCheck.ContractModel (
   Action,
@@ -132,6 +144,16 @@ import Plutus.Contract.Test.Certification
 import Plutus.Contract.Test.Certification.Run
 import Test.QuickCheck.DynamicLogic qualified as QCD
 
+
+curr :: CurrencySymbol
+curr = "c7c9864fcc779b5573d97e3beefe5dd3705bbfe41972acd9bb6ebe9e" 
+
+tn :: TokenName
+tn = "ThreadToken"
+
+tt :: AssetClass
+tt = assetClass curr tn
+
 type Wallet = Integer
 
 w1, w2, w3, w4, w5 :: Wallet
@@ -165,7 +187,7 @@ modelParams = Params {authSigs = [walletPaymentPubKeyHash w4 , walletPaymentPubK
 
 data Phase = Holding
            | Collecting 
-       deriving (Show, Eq)
+       deriving (Show, Eq, Generic)
 
 data MultiSigModel = MultiSigModel
   { _actualValue :: Value
@@ -174,7 +196,7 @@ data MultiSigModel = MultiSigModel
   , _phase :: Phase
   , _paymentValue :: Value
   , _paymentTarget :: Maybe Wallet
-  , _deadline :: Maybe Ledger.Slot
+  , _deadline :: Maybe Integer
   , _actualSignatories :: [Wallet]
   }
   deriving (Eq, Show, Generic)
@@ -185,32 +207,32 @@ makeLenses ''MultiSigModel
 
 instance ContractModel MultiSigModel where
   data Action MultiSigModel
-    = Propose Value Wallet Ledger.Slot
+    = Propose Wallet Value Wallet Integer
     | Add Wallet
     | Pay Wallet
     | Cancel Wallet
-    | Start Wallet
+    | Start Wallet Value
     deriving (Eq, Show, Generic)
 
   initialState =
     MultiSigModel
       { _actualValue = mempty 
       , _requiredSignatories = []
-      , _threadToken = AssetClass (adaSymbol, adaToken)
+      , _threadToken = tt --AssetClass (adaSymbol, adaToken)
       , _phase = Holding
       , _paymentValue = mempty
-      , _payemetTarget = Nothing
+      , _paymentTarget = Nothing
       , _deadline = Nothing
       , _actualSignatories = []
       
       }
 
   nextState a = void $ case a of
-    Propose v w d -> do
+    Propose w1 v w2 d -> do
       phase .= Collecting
       paymentValue .= v
-      paymentTarget .= Just w
-      paymentDeadline .= Just d
+      paymentTarget .= Just w2
+      deadline .= Just d
       wait 1
     Add w -> do
       actualSignatories %= (w:)
@@ -221,19 +243,19 @@ instance ContractModel MultiSigModel where
       -}
     Pay w -> do
       phase .= Holding
-      paymentDeadline .= Nothing
+      deadline .= Nothing
       address <- viewContractState paymentTarget
       paymentTarget .= Nothing
       actualSignatories .= []
       actualValue' <- viewContractState actualValue
-      paymentValue' <- viewContractState payementValue
-      actualValue .= actualValue' - payementValue'
-      deposit (fromJust address) payementValue' 
+      paymentValue' <- viewContractState paymentValue
+      actualValue .= actualValue' <> (PlutusTx.negate paymentValue')
+      deposit (walletAddress (fromJust address)) paymentValue' 
       paymentValue .= mempty
       wait 1
     Cancel w -> do
       wait 1
-    Start w -> do
+    Start w v -> do
       --withdraw (walletAddress w) (Ada.adaValueOf $ fromInteger v)
       wait 1
 
@@ -278,42 +300,122 @@ instance ContractModel MultiSigModel where
       afterRefund = Prelude.not beforeRefund
       prefer b = if b then 10 else 1-}
 
+currC :: Value.PolicyId
+currC = PolicyId {unPolicyId = "c7c9864fcc779b5573d97e3beefe5dd3705bbfe41972acd9bb6ebe9e" }
+
+tnC :: Value.AssetName
+tnC = AssetName "ThreadToken"
+
+defInitialDist :: Map Ledger.CardanoAddress Value.Value
+defInitialDist = Map.fromList $ (, (Value.lovelaceValueOf 100000000000 <> 
+                 Value.singleton currC tnC 1)) <$> E.knownAddresses
 
 options :: E.Options MultiSigModel
 options =
   E.defaultOptions
-    { E.params = Params.increaseTransactionLimits def
+    { E.initialDistribution = defInitialDist
+    , E.params = Params.increaseTransactionLimits def
     , E.coverageIndex = Impl.covIdx
     }
 
-{-
-act :: Action EscrowModel -> E.EmulatorM ()
+
+act :: Action MultiSigModel -> E.EmulatorM ()
 act = \case
-  Pay w v ->
-    pay
-      (walletAddress w)
-      (walletPrivateKey w)
-      modelParams
-      (Ada.adaValueOf $ fromInteger v)
-  Redeem w ->
+  Propose w1 v w2 d ->
+    void $ 
+      propose
+        (walletAddress w1)
+        (walletPrivateKey w1)
+        modelParams
+        v
+        (walletPaymentPubKeyHash w2)
+        d
+        tt
+  Add w ->
     void $
-      redeem
+      add
         (walletAddress w)
         (walletPrivateKey w)
         modelParams
-  Refund w ->
+        tt
+  Pay w ->
     void $
-      refund
+      pay
         (walletAddress w)
         (walletPrivateKey w)
         modelParams
-  BadRefund w w' ->
+        tt
+  Cancel w ->
     void $
-      badRefund
+      cancel
         (walletAddress w)
         (walletPrivateKey w)
         modelParams
-        (walletPaymentPubKeyHash w')
+        tt
+  Start w v ->
+    
+      start
+        (walletAddress w)
+        (walletPrivateKey w)
+        modelParams
+        v
+        tt
+
+{-ValidationError (Phase2,ScriptFailure (EvaluationError 
+["CoverBool (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 303, 
+_covLocEndLine = 303, _covLocStartCol = 84, _covLocEndCol = 85}) True","CoverBool 
+(CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 122, _covLocEndLine = 122,
+ _covLocStartCol = 7, _covLocEndCol = 13}) True","CoverBool (CovLoc 
+ {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 187, _covLocEndLine = 187, 
+ _covLocStartCol = 1, _covLocEndCol = 52}) True","CoverBool (CovLoc {_covLocFile = 
+  \"src/Contract/MultiSig.hs\", _covLocStartLine = 303, _covLocEndLine = 303, _covLocStartCol = 45,
+   _covLocEndCol = 86}) True","CoverBool (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\",
+    _covLocStartLine = 304, _covLocEndLine = 304, _covLocStartCol = 85, _covLocEndCol = 86}) True",
+    "CoverBool (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 122, 
+    _covLocEndLine = 122, _covLocStartCol = 7, _covLocEndCol = 13}) True","CoverBool 
+    (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 187, _covLocEndLine = 187, 
+    _covLocStartCol = 1, _covLocEndCol = 52}) True","CoverBool (CovLoc 
+    {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 304, _covLocEndLine = 304,
+     _covLocStartCol = 46, _covLocEndCol = 87}) True","CoverBool (CovLoc 
+     {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 164, _covLocEndLine = 164,
+      _covLocStartCol = 56, _covLocEndCol = 58}) True","CoverBool (CovLoc 
+      {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 276, _covLocEndLine = 276,
+       _covLocStartCol = 61, _covLocEndCol = 69}) True","CoverBool (CovLoc 
+       {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 251, _covLocEndLine = 251, 
+       _covLocStartCol = 39, _covLocEndCol = 112}) True","CoverBool (CovLoc 
+       {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 251, _covLocEndLine = 251, 
+       _covLocStartCol = 39, _covLocEndCol = 112}) True","CoverBool (CovLoc 
+       {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 251, _covLocEndLine = 251,
+        _covLocStartCol = 39, _covLocEndCol = 112}) False","CoverBool (CovLoc 
+        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 252, _covLocEndLine = 252, 
+        _covLocStartCol = 15, _covLocEndCol = 68}) False","CoverBool (CovLoc 
+        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 252, _covLocEndLine = 252, 
+        _covLocStartCol = 15, _covLocEndCol = 68}) False","CoverBool (CovLoc 
+        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 251, _covLocEndLine = 252, 
+        _covLocStartCol = 1, _covLocEndCol = 71}) False","CoverBool (CovLoc 
+        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 278, _covLocEndLine = 280, 
+        _covLocStartCol = 64, _covLocEndCol = 102}) False","CoverBool (CovLoc 
+        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 277, _covLocEndLine = 281, 
+        _covLocStartCol = 49, _covLocEndCol = 80}) False","CoverBool (CovLoc 
+        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 276, _covLocEndLine = 281, 
+        _covLocStartCol = 47, _covLocEndCol = 80}) False","CoverBool 
+        (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 259, 
+        _covLocEndLine = 284, _covLocStartCol = 36, _covLocEndCol = 81}) False","CoverBool 
+        (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 257, 
+        _covLocEndLine = 295, _covLocStartCol = 1, _covLocEndCol = 39}) False","CoverBool 
+        (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 305,
+        _covLocEndLine = 305, _covLocStartCol = 38, _covLocEndCol = 78}) False","CoverBool 
+        (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 305,
+         _covLocEndLine = 305, _covLocStartCol = 5, _covLocEndCol = 78}) False","CoverBool 
+         (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 304, 
+         _covLocEndLine = 305, _covLocStartCol = 5, _covLocEndCol = 78}) False","CoverBool 
+         (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 301,
+          _covLocEndLine = 305, _covLocStartCol = 1, _covLocEndCol = 78}) False"] 
+          "CekEvaluationFailure: An error has occurred:  
+          User error:\nThe machine terminated because of an error, 
+          either from a built-in function or from an explicit use of 'error'."))
+-}
+
 
 tests :: TestTree
 tests =
@@ -321,25 +423,50 @@ tests =
     "escrow"
     [ checkPredicateOptions
         options
-        "can pay"
+        "can start"
         ( hasValidatedTransactionCountOfTotal 1 1
-            .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-10))
-        )
+            .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-100) <> Value.singleton currC tnC (-1)))
         $ do
-          act $ Pay 1 10
+          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
     , checkPredicateOptions
         options
-        "can redeem"
-        ( hasValidatedTransactionCountOfTotal 3 3
-            .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-10))
-            .&&. walletFundsChange (walletAddress w2) (Value.adaValueOf 10)
-            .&&. walletFundsChange (walletAddress w3) mempty
-        )
+        "can propose"
+        ( hasValidatedTransactionCountOfTotal 2 2
+            .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-100) <> Value.singleton currC tnC (-1)))
+            -- .&&. walletFundsChange (walletAddress w2) (Value.adaValueOf 10)
+            -- .&&. walletFundsChange (walletAddress w3) mempty
+        
         $ do
-          act $ Pay 1 20
-          act $ Pay 2 10
-          act $ Redeem 3
+          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          act $ Propose 2 (Ada.adaValueOf 10) 3 12345
     , checkPredicateOptions
+        options
+        "can add"
+        ( hasValidatedTransactionCountOfTotal 4 4
+            .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-100) <> Value.singleton currC tnC (-1)))
+            -- .&&. walletFundsChange (walletAddress w2) (Value.adaValueOf 10)
+            -- .&&. walletFundsChange (walletAddress w3) mempty
+        
+        $ do
+          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          act $ Propose 2 (Ada.adaValueOf 10) 3 12345
+          act $ Add 4
+          act $ Add 5
+    , checkPredicateOptions
+        options
+        "can pay"
+        ( hasValidatedTransactionCountOfTotal 4 4
+            .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-100) <> Value.singleton currC tnC (-1)))
+            -- .&&. walletFundsChange (walletAddress w2) (Value.adaValueOf 10)
+            -- .&&. walletFundsChange (walletAddress w3) mempty
+        
+        $ do
+          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          act $ Propose 2 (Ada.adaValueOf 10) 3 12345
+          act $ Add 4
+          act $ Add 5
+          --act $ Pay 3
+    {-, checkPredicateOptions
         options
         "can redeem even if more money than required has been paid in"
         -- in this test case we pay in a total of 40 lovelace (10 more than required), for
@@ -379,9 +506,9 @@ tests =
     , testProperty "QuickCheck validityChecks" $ QC.withMaxSuccess 30 prop_validityChecks
     , testProperty "QuickCheck finishEscrow" prop_FinishEscrow
     , testProperty "QuickCheck double satisfaction fails" $
-        QC.expectFailure (QC.noShrinking prop_Escrow_DoubleSatisfaction) -}
+        QC.expectFailure (QC.noShrinking prop_Escrow_DoubleSatisfaction) -}-}
     ]
--}
+
 
 -------------------------------------------------------------------
 {-

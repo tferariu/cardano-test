@@ -92,7 +92,25 @@ toValidityRange
 toValidityRange slotConfig =
   either (error . show) id . C.toCardanoValidityRange . posixTimeRangeToContainedSlotRange slotConfig
 
-{--}
+
+{-UTxO 
+{unUTxO = 
+  fromList [(TxIn \"200d08bbe612b7f6eb1b3ea8a10d2cb712a323f63dc1d5d7739dbffa63dd11df\" (TxIx 0),
+  TxOut (AddressInEra (ShelleyAddressInEra ShelleyBasedEraBabbage) 
+  (ShelleyAddress Testnet (ScriptHashObj 
+  (ScriptHash \"a3a789420a1f12675405b95f8b56ff76af44a4e01b98a0096bc198ee\")) StakeRefNull)) 
+  (TxOutValueShelleyBased ShelleyBasedEraBabbage 
+  (MaryValue (Coin 100000000) (MultiAsset (fromList [])))) 
+  (TxOutDatumInline BabbageEraOnwardsBabbage 
+  (HashableScriptData \"\\216y\\159\\216y\\128\\216y\\159X\\FS\\199\\201\\134O\\204w\\155Us\
+  \217~;\\238\\254]\\211p[\\191\\228\\EMr\\172\\217\\187n\\190\\158KThreadToken\\255\\255\" 
+  (ScriptDataConstructor 0 [ScriptDataConstructor 0 [],ScriptDataConstructor 0 
+  [ScriptDataBytes \"\\199\\201\\134O\\204w\\155Us\\217~;\\238\\254]\\211p[\\191
+  \\228\\EMr\\172\\217\\187n\\190\\158\",ScriptDataBytes \"ThreadToken\"]])))
+   ReferenceScriptNone)]}"
+-}
+
+
 mkProposeTx
   :: (E.MonadEmulator m)
   => Params
@@ -111,8 +129,13 @@ mkProposeTx params val pkh d tt = do
           Map.filter (\(C.TxOut _aie tov _tod _rs) -> 
             (assetClassValueOf (C.fromCardanoValue (C.fromCardanoTxOutValue tov)) 
             tt == 1)) $ C.unUTxO unspentOutputs
-  when (length (validUnspentOutputs') /= 1)
-    $ throwError $ E.CustomError $ "not SM" 
+            
+  {-when (length (validUnspentOutputs') /= 1)
+    $ throwError $ E.CustomError $ "not SM" -}
+  when (length (validUnspentOutputs') == 0)
+    $ throwError $ E.CustomError $ ("found no SM but: " ++ (show unspentOutputs))
+  when (length (validUnspentOutputs') > 1)
+    $ throwError $ E.CustomError $ "found too many SM"
   let
     --currentlyLocked = C.fromCardanoValue (foldMap Ledger.cardanoTxOutValue (C.unUTxO unspentOutputs)) --old
     remainingValue = C.fromCardanoValue (foldMap Ledger.cardanoTxOutValue validUnspentOutputs')
@@ -279,12 +302,8 @@ mkPayTx params tt = do
                     (Just (State {label = Collecting v pkh d sigs, tToken = tt})) : _ -> 
                         ((State {label = Holding, tToken = tt}), (v, pkh))
                     otherwise -> ((State {label = Holding, tToken = tt}), (mempty, pkh))
-
     remainingOutputs = [ C.TxOut smAddress (toTxOutValue (currentValue <> (PlutusTx.negate v))) (toTxOutInlineDatum datum) C.ReferenceScriptNone ,
                          C.TxOut (toPkhAddress pkh) (toTxOutValue v) C.TxOutDatumNone C.ReferenceScriptNone] 
-
-
-
     validityRange = toValidityRange slotConfig $ Interval.from current
     redeemer = toHashableScriptData (Pay)
     witnessHeader =
@@ -294,7 +313,6 @@ mkPayTx params tt = do
         C.BuildTxWith $
           C.ScriptWitness C.ScriptWitnessForSpending $
           witnessHeader C.InlineScriptDatum redeemer C.zeroExecutionUnits
-    
     txIns = (,witness) <$> Map.keys validUnspentOutputs
 
     utx =
@@ -357,9 +375,7 @@ mkCancelTx params tt = do
         C.BuildTxWith $
           C.ScriptWitness C.ScriptWitnessForSpending $
           witnessHeader C.InlineScriptDatum redeemer C.zeroExecutionUnits
-    
     txIns = (,witness) <$> Map.keys validUnspentOutputs
-
     utx =
         E.emptyTxBodyContent
           { C.txIns = txIns
@@ -393,7 +409,8 @@ mkStartTx
   -> (C.CardanoBuildTx, Ledger.UtxoIndex)
 mkStartTx slotConfig params v tt =
   let smAddress = mkAddress params
-      txOut = C.TxOut smAddress (toTxOutValue v) (toTxOutInlineDatum (State {label = Holding, tToken = tt})) C.ReferenceScriptNone
+      txOut = C.TxOut smAddress (toTxOutValue (v) ) -- <> assetClassValue tt 1)) 
+              (toTxOutInlineDatum (State {label = Holding, tToken = tt})) C.ReferenceScriptNone
       validityRange = toValidityRange slotConfig $ Interval.always
       utx =
         E.emptyTxBodyContent
