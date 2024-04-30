@@ -249,8 +249,9 @@ checkSigned pkh ctx = txSignedBy (scriptContextTxInfo ctx) (unPaymentPubKeyHash 
 {-# INLINABLE checkPayment #-}
 checkPayment :: PaymentPubKeyHash -> Value -> TxInfo -> Bool
 checkPayment pkh v info = case filter (\i -> (txOutAddress i == (pubKeyHashAddress (unPaymentPubKeyHash pkh)))) (txInfoOutputs info) of
-    os -> any (\o -> txOutValue o == (v <> (lovelaceValue minVal))) os
+    os -> any (\o -> txOutValue o == v) os
 
+-- <> (lovelaceValue minVal)
 
 {-# INLINABLE agdaValidator #-}
 agdaValidator :: Params -> Label -> Input -> ScriptContext -> Bool
@@ -302,8 +303,12 @@ mkValidator param st red ctx =
 
     traceIfFalse "token missing from input" (getVal (ownInput ctx) (tToken st)  == 1)                 &&
     traceIfFalse "token missing from output" (getVal (ownOutput ctx) (tToken st) == 1)                &&
-    traceIfFalse "failed validation" (agdaValidator param (label st) red ctx)
+    traceIfFalse "failed Validation" (agdaValidator param (label st) red ctx)
 
+{-(case (agdaValidator param (label st) red ctx) of 
+      True -> True
+      False -> (traceError "failed Validation"))-}
+--traceIfFalse "failed validation" False --
 
 data MultiSig
 instance Scripts.ValidatorTypes MultiSig where

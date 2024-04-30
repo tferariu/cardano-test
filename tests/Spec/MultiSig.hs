@@ -256,7 +256,8 @@ instance ContractModel MultiSigModel where
     Cancel w -> do
       wait 1
     Start w v -> do
-      --withdraw (walletAddress w) (Ada.adaValueOf $ fromInteger v)
+      withdraw (walletAddress w) v
+      actualValue .= v
       wait 1
 
 
@@ -361,61 +362,6 @@ act = \case
         v
         tt
 
-{-ValidationError (Phase2,ScriptFailure (EvaluationError 
-["CoverBool (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 303, 
-_covLocEndLine = 303, _covLocStartCol = 84, _covLocEndCol = 85}) True","CoverBool 
-(CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 122, _covLocEndLine = 122,
- _covLocStartCol = 7, _covLocEndCol = 13}) True","CoverBool (CovLoc 
- {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 187, _covLocEndLine = 187, 
- _covLocStartCol = 1, _covLocEndCol = 52}) True","CoverBool (CovLoc {_covLocFile = 
-  \"src/Contract/MultiSig.hs\", _covLocStartLine = 303, _covLocEndLine = 303, _covLocStartCol = 45,
-   _covLocEndCol = 86}) True","CoverBool (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\",
-    _covLocStartLine = 304, _covLocEndLine = 304, _covLocStartCol = 85, _covLocEndCol = 86}) True",
-    "CoverBool (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 122, 
-    _covLocEndLine = 122, _covLocStartCol = 7, _covLocEndCol = 13}) True","CoverBool 
-    (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 187, _covLocEndLine = 187, 
-    _covLocStartCol = 1, _covLocEndCol = 52}) True","CoverBool (CovLoc 
-    {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 304, _covLocEndLine = 304,
-     _covLocStartCol = 46, _covLocEndCol = 87}) True","CoverBool (CovLoc 
-     {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 164, _covLocEndLine = 164,
-      _covLocStartCol = 56, _covLocEndCol = 58}) True","CoverBool (CovLoc 
-      {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 276, _covLocEndLine = 276,
-       _covLocStartCol = 61, _covLocEndCol = 69}) True","CoverBool (CovLoc 
-       {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 251, _covLocEndLine = 251, 
-       _covLocStartCol = 39, _covLocEndCol = 112}) True","CoverBool (CovLoc 
-       {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 251, _covLocEndLine = 251, 
-       _covLocStartCol = 39, _covLocEndCol = 112}) True","CoverBool (CovLoc 
-       {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 251, _covLocEndLine = 251,
-        _covLocStartCol = 39, _covLocEndCol = 112}) False","CoverBool (CovLoc 
-        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 252, _covLocEndLine = 252, 
-        _covLocStartCol = 15, _covLocEndCol = 68}) False","CoverBool (CovLoc 
-        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 252, _covLocEndLine = 252, 
-        _covLocStartCol = 15, _covLocEndCol = 68}) False","CoverBool (CovLoc 
-        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 251, _covLocEndLine = 252, 
-        _covLocStartCol = 1, _covLocEndCol = 71}) False","CoverBool (CovLoc 
-        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 278, _covLocEndLine = 280, 
-        _covLocStartCol = 64, _covLocEndCol = 102}) False","CoverBool (CovLoc 
-        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 277, _covLocEndLine = 281, 
-        _covLocStartCol = 49, _covLocEndCol = 80}) False","CoverBool (CovLoc 
-        {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 276, _covLocEndLine = 281, 
-        _covLocStartCol = 47, _covLocEndCol = 80}) False","CoverBool 
-        (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 259, 
-        _covLocEndLine = 284, _covLocStartCol = 36, _covLocEndCol = 81}) False","CoverBool 
-        (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 257, 
-        _covLocEndLine = 295, _covLocStartCol = 1, _covLocEndCol = 39}) False","CoverBool 
-        (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 305,
-        _covLocEndLine = 305, _covLocStartCol = 38, _covLocEndCol = 78}) False","CoverBool 
-        (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 305,
-         _covLocEndLine = 305, _covLocStartCol = 5, _covLocEndCol = 78}) False","CoverBool 
-         (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 304, 
-         _covLocEndLine = 305, _covLocStartCol = 5, _covLocEndCol = 78}) False","CoverBool 
-         (CovLoc {_covLocFile = \"src/Contract/MultiSig.hs\", _covLocStartLine = 301,
-          _covLocEndLine = 305, _covLocStartCol = 1, _covLocEndCol = 78}) False"] 
-          "CekEvaluationFailure: An error has occurred:  
-          User error:\nThe machine terminated because of an error, 
-          either from a built-in function or from an explicit use of 'error'."))
--}
-
 
 tests :: TestTree
 tests =
@@ -432,12 +378,13 @@ tests =
         options
         "can propose"
         ( hasValidatedTransactionCountOfTotal 2 2
-            .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-100) <> Value.singleton currC tnC (-1)))
+            .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-100) <> Value.singleton currC tnC (-1))
             -- .&&. walletFundsChange (walletAddress w2) (Value.adaValueOf 10)
-            -- .&&. walletFundsChange (walletAddress w3) mempty
-        
+            .&&. walletFundsChange (walletAddress w2) mempty
+        )
         $ do
           act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          --act $ Start 2 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
           act $ Propose 2 (Ada.adaValueOf 10) 3 12345
     , checkPredicateOptions
         options
@@ -455,17 +402,52 @@ tests =
     , checkPredicateOptions
         options
         "can pay"
-        ( hasValidatedTransactionCountOfTotal 4 4
+        ( hasValidatedTransactionCountOfTotal 5 5
+            .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-100) <> Value.singleton currC tnC (-1))
+            .&&. walletFundsChange (walletAddress w3) (Value.adaValueOf 10)
+            -- .&&. walletFundsChange (walletAddress w3) mempty
+        )
+        $ do
+          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          act $ Propose 2 (Ada.adaValueOf 10) 3 12345
+          act $ Add 4
+          act $ Add 5
+          act $ Pay 3
+    , checkPredicateOptions
+        options
+        "can cancel"
+        ( hasValidatedTransactionCountOfTotal 7 7
             .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-100) <> Value.singleton currC tnC (-1)))
             -- .&&. walletFundsChange (walletAddress w2) (Value.adaValueOf 10)
             -- .&&. walletFundsChange (walletAddress w3) mempty
         
         $ do
           act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          act $ Propose 2 (Ada.adaValueOf 10) 3 1596059096001
+          act $ Add 4
+          act $ Add 4
+          act $ Add 5
+          act $ Add 4
+          act $ Cancel 2
+    , checkPredicateOptions
+        options
+        "can double pay"
+        ( hasValidatedTransactionCountOfTotal 9 9
+            .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-100) <> Value.singleton currC tnC (-1))
+            .&&. walletFundsChange (walletAddress w2) (Value.adaValueOf 30)
+            .&&. walletFundsChange (walletAddress w3) (Value.adaValueOf 10)
+            -- .&&. walletFundsChange (walletAddress w3) mempty
+        )
+        $ do
+          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
           act $ Propose 2 (Ada.adaValueOf 10) 3 12345
           act $ Add 4
           act $ Add 5
-          --act $ Pay 3
+          act $ Pay 3
+          act $ Propose 3 (Ada.adaValueOf 30) 2 12345
+          act $ Add 5
+          act $ Add 4
+          act $ Pay 2
     {-, checkPredicateOptions
         options
         "can redeem even if more money than required has been paid in"
