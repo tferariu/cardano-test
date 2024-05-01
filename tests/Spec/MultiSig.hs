@@ -66,7 +66,7 @@ import Ledger.Tx.CardanoAPI (fromCardanoSlotNo)
 import Ledger.Typed.Scripts qualified as Scripts
 import Ledger.Value.CardanoAPI qualified as Value
 import Plutus.Script.Utils.Ada qualified as Ada
-import Plutus.Script.Utils.Value (Value, geq, AssetClass, CurrencySymbol, TokenName, assetClass, assetClassValue)
+import Plutus.Script.Utils.Value (Value, geq, AssetClass, CurrencySymbol, TokenName, assetClass, assetClassValue, valueOf)
 import PlutusLedgerApi.V1.Time (POSIXTime)
 
 import Contract.MultiSig hiding (Input(..), Label(..))
@@ -134,6 +134,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.QuickCheck (
   Property,
   choose,
+  chooseInteger,
   frequency,
   testProperty,
  )
@@ -183,15 +184,17 @@ walletPaymentPubKeyHash =
 
 
 modelParams :: Params
-modelParams = Params {authSigs = [walletPaymentPubKeyHash w4 , walletPaymentPubKeyHash w5], nr = 2}
+modelParams = Params {authSigs = [walletPaymentPubKeyHash w4 , walletPaymentPubKeyHash w5, walletPaymentPubKeyHash w3], nr = 2}
 
-data Phase = Holding
+data Phase = Initial
+		   | Holding
            | Collecting 
        deriving (Show, Eq, Generic)
 
 data MultiSigModel = MultiSigModel
   { _actualValue :: Value
-  , _requiredSignatories :: [Wallet] 
+  , _allowedSignatories :: [Wallet] 
+  , _requiredSignatories :: Integer
   , _threadToken :: AssetClass
   , _phase :: Phase
   , _paymentValue :: Value
@@ -203,7 +206,14 @@ data MultiSigModel = MultiSigModel
 
 makeLenses ''MultiSigModel
 
+genWallet :: QC.Gen Wallet
+genWallet = QC.elements testWallets
 
+genTT :: QC.Gen	AssetClass
+genTT = QC.elements [tt]
+
+beginningOfTime :: Integer
+beginningOfTime = 1596059091000
 
 instance ContractModel MultiSigModel where
   data Action MultiSigModel
@@ -211,15 +221,16 @@ instance ContractModel MultiSigModel where
     | Add Wallet
     | Pay Wallet
     | Cancel Wallet
-    | Start Wallet Value
+    | Start Wallet Value AssetClass
     deriving (Eq, Show, Generic)
 
   initialState =
     MultiSigModel
       { _actualValue = mempty 
-      , _requiredSignatories = []
+      , _allowedSignatories = [w5, w3, w4]
+	  , _requiredSignatories = (nr modelParams)
       , _threadToken = tt --AssetClass (adaSymbol, adaToken)
-      , _phase = Holding
+      , _phase = Initial
       , _paymentValue = mempty
       , _paymentTarget = Nothing
       , _deadline = Nothing
@@ -235,10 +246,14 @@ instance ContractModel MultiSigModel where
       deadline .= Just d
       wait 1
     Add w -> do
-      actualSignatories %= (w:)
+      actualSignatories' <- viewContractState actualSignatories
+      actualSignatories %= --(w:) 
+	                       (case (elem w actualSignatories') of
+                                True -> id
+                                False -> (w:))
       wait 1
       {-
-      actualSignatories <- viewContractState actualSignatories
+      actualSignatories' <- viewContractState actualSignatories
       actualSignatories’ = nub (w : actualSignatories)
       -}
     Pay w -> do
@@ -255,13 +270,28 @@ instance ContractModel MultiSigModel where
       wait 1
     Cancel w -> do
       wait 1
-    Start w v -> do
-      withdraw (walletAddress w) v
+    Start w v tt' -> do
+      phase .= Holding
+      withdraw (walletAddress w) (v <> (assetClassValue tt 1))
       actualValue .= v
+      threadToken .= tt'
       wait 1
 
 
-  precondition s a = True {-case a of
+  precondition s a = case a of
+			Propose w1 v w2 d -> currentPhase == Holding && (currentValue `geq` v)
+			Add w -> currentPhase == Collecting && (elem w sigs) && not (elem w actualSigs)
+			Pay w -> currentPhase == Collecting && ((length actualSigs) >= (fromIntegral min))
+			Cancel w -> currentPhase == Collecting && True --(s ^. currentSlot . to fromCardanoSlotNo > s ^. contractState . refundSlot)
+			Start w v tt' -> currentPhase == Initial
+		where 
+		currentPhase = s ^. contractState . phase
+		currentValue = s ^. contractState . actualValue
+		sigs = s ^. contractState . allowedSignatories
+		actualSigs = s ^. contractState . actualSignatories
+		min = s ^. contractState . requiredSignatories
+	
+{-	
     Redeem _ ->
       (s ^. contractState . contributions . to Data.Foldable.fold)
         `geq` (s ^. contractState . targets . to Data.Foldable.fold)
@@ -280,26 +310,34 @@ instance ContractModel MultiSigModel where
       s ^. currentSlot . to fromCardanoSlotNo < s ^. contractState . refundSlot - 2 -- why -2?
         || w /= w'-}
 
+
   -- enable again later
   validFailingAction _ _ = False
 
-  {-arbitraryAction s =
-    frequency $
-      [ (prefer beforeRefund, Pay <$> QC.elements testWallets <*> choose @Integer (10, 30))
-      , (prefer beforeRefund, Redeem <$> QC.elements testWallets)
-      , (prefer afterRefund, BadRefund <$> QC.elements testWallets <*> QC.elements testWallets)
-      ]
-        ++ [ ( prefer afterRefund
-             , Refund <$> QC.elements (s ^. contractState . contributions . to Map.keys)
-             )
-           | Prelude.not . Data.Foldable.null $
-              s ^. contractState . contributions . to Map.keys
-           ]
-    where
-      slot = s ^. currentSlot . to fromCardanoSlotNo
-      beforeRefund = slot < s ^. contractState . refundSlot
-      afterRefund = Prelude.not beforeRefund
-      prefer b = if b then 10 else 1-}
+
+--put token back in Start
+  arbitraryAction s = frequency [ (1 , Propose <$> genWallet
+											   <*> (Ada.lovelaceValueOf
+                                                   <$> choose (Ada.getLovelace Ledger.minAdaTxOutEstimated, valueOf amount Ada.adaSymbol Ada.adaToken))
+											   <*> genWallet
+											   <*> chooseInteger (beginningOfTime, 159605910001))
+							    , (1, Add <$> genWallet)
+							    , (1, Pay <$> genWallet)
+							    , (1, Cancel <$> genWallet)
+							    , (1, Start <$> genWallet
+										    <*> (Ada.lovelaceValueOf
+                                                   <$> choose (Ada.getLovelace Ledger.minAdaTxOutEstimated, 100000000000))
+											<*> genTT)
+								]
+		where
+			amount   = s ^. contractState . actualValue
+
+
+
+instance RunModel MultiSigModel E.EmulatorM where
+  perform _ cmd _ = lift $ voidCatch $ act cmd
+
+voidCatch m = catchError (void m) (\ _ -> pure ())
 
 currC :: Value.PolicyId
 currC = PolicyId {unPolicyId = "c7c9864fcc779b5573d97e3beefe5dd3705bbfe41972acd9bb6ebe9e" }
@@ -353,7 +391,7 @@ act = \case
         (walletPrivateKey w)
         modelParams
         tt
-  Start w v ->
+  Start w v tt ->
     
       start
         (walletAddress w)
@@ -362,6 +400,9 @@ act = \case
         v
         tt
 
+
+prop_MultiSig :: Actions MultiSigModel -> Property
+prop_MultiSig = E.propRunActionsWithOptions options
 
 tests :: TestTree
 tests =
@@ -373,7 +414,7 @@ tests =
         ( hasValidatedTransactionCountOfTotal 1 1
             .&&. walletFundsChange (walletAddress w1) (Value.adaValueOf (-100) <> Value.singleton currC tnC (-1)))
         $ do
-          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          act $ Start 1 (Ada.adaValueOf 100) tt
     , checkPredicateOptions
         options
         "can propose"
@@ -383,7 +424,7 @@ tests =
             .&&. walletFundsChange (walletAddress w2) mempty
         )
         $ do
-          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          act $ Start 1 (Ada.adaValueOf 100) tt
           --act $ Start 2 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
           act $ Propose 2 (Ada.adaValueOf 10) 3 12345
     , checkPredicateOptions
@@ -395,7 +436,7 @@ tests =
             -- .&&. walletFundsChange (walletAddress w3) mempty
         
         $ do
-          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          act $ Start 1 (Ada.adaValueOf 100) tt
           act $ Propose 2 (Ada.adaValueOf 10) 3 12345
           act $ Add 4
           act $ Add 5
@@ -408,10 +449,10 @@ tests =
             -- .&&. walletFundsChange (walletAddress w3) mempty
         )
         $ do
-          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          act $ Start 1 (Ada.adaValueOf 100) tt
           act $ Propose 2 (Ada.adaValueOf 10) 3 12345
-          act $ Add 4
           act $ Add 5
+          act $ Add 4
           act $ Pay 3
     , checkPredicateOptions
         options
@@ -422,7 +463,7 @@ tests =
             -- .&&. walletFundsChange (walletAddress w3) mempty
         
         $ do
-          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          act $ Start 1 (Ada.adaValueOf 100) tt
           act $ Propose 2 (Ada.adaValueOf 10) 3 1596059096001
           act $ Add 4
           act $ Add 4
@@ -439,7 +480,7 @@ tests =
             -- .&&. walletFundsChange (walletAddress w3) mempty
         )
         $ do
-          act $ Start 1 (Ada.adaValueOf 100 <> (assetClassValue tt 1))
+          act $ Start 1 (Ada.adaValueOf 100) tt
           act $ Propose 2 (Ada.adaValueOf 10) 3 12345
           act $ Add 4
           act $ Add 5
@@ -448,6 +489,7 @@ tests =
           act $ Add 5
           act $ Add 4
           act $ Pay 2
+	, testProperty "QuickCheck ContractModel" prop_MultiSig
     {-, checkPredicateOptions
         options
         "can redeem even if more money than required has been paid in"

@@ -409,7 +409,7 @@ mkStartTx
   -> (C.CardanoBuildTx, Ledger.UtxoIndex)
 mkStartTx slotConfig params v tt =
   let smAddress = mkAddress params
-      txOut = C.TxOut smAddress (toTxOutValue (v) ) -- <> assetClassValue tt 1)) 
+      txOut = C.TxOut smAddress (toTxOutValue (v <> assetClassValue tt 1)) 
               (toTxOutInlineDatum (State {label = Holding, tToken = tt})) C.ReferenceScriptNone
       validityRange = toValidityRange slotConfig $ Interval.always
       utx =
