@@ -1,0 +1,195 @@
+<body ><h1 >Files</h1><ul ><li ><a href="#src/Contract/MultiSig.hs" >src/Contract/MultiSig.hs</a></li></ul><hr><h2 id="src/Contract/MultiSig.hs" >src/Contract/MultiSig.hs</h2><pre >.
+.
+.
+   116    <span style=background-color:lightgray;color:gray >    {-# INLINABLE (==) #-}</span>
+   117    <span style=background-color:lightgray;color:gray >    b == c = lEq b c</span>
+   118    <span style=background-color:lightgray;color:gray ></span>
+   119    <span style=background-color:lightgray;color:gray ></span>
+   120    <span style=background-color:lightgray;color:gray >data State = State</span>
+   121    <span style=background-color:lightgray;color:gray >    { </span><span style=background-color:black;color:orangered >label </span><span style=background-color:lightgray;color:gray > :: Label</span>
+   122    <span style=background-color:lightgray;color:gray >    , </span><span style=background-color:lightgreen;color:black >tToken </span><span style=background-color:lightgray;color:gray >:: AssetClass</span>
+   123    <span style=background-color:lightgray;color:gray >    } deriving (Show)</span>
+   124    <span style=background-color:lightgray;color:gray ></span>
+   125    <span style=background-color:lightgray;color:gray >instance Eq State where</span>
+   126    <span style=background-color:lightgray;color:gray >    {-# INLINABLE (==) #-}</span>
+   127    <span style=background-color:lightgray;color:gray >    b == c = (label b  == label c) &amp;&amp;</span>
+.
+.
+.
+   133    <span style=background-color:lightgray;color:gray >           | Pay</span>
+   134    <span style=background-color:lightgray;color:gray >           | Cancel</span>
+   135    <span style=background-color:lightgray;color:gray >          deriving (Show)</span>
+   136    <span style=background-color:lightgray;color:gray ></span>
+   137    <span style=background-color:lightgray;color:gray ></span>
+   138    <span style=background-color:black;color:orangered >PlutusTx.unstableMakeIsData &#39;&#39;Label</span><span style=background-color:lightgray;color:gray ></span>
+   139    <span style=background-color:lightgray;color:gray >PlutusTx.makeLift &#39;&#39;Label</span>
+   140    <span style=background-color:lightgray;color:gray >PlutusTx.unstableMakeIsData &#39;&#39;Input</span>
+   141    <span style=background-color:lightgray;color:gray >PlutusTx.makeLift &#39;&#39;Input</span>
+   142    <span style=background-color:black;color:orangered >PlutusTx.unstableMakeIsData &#39;&#39;State</span><span style=background-color:lightgray;color:gray ></span>
+   143    <span style=background-color:lightgray;color:gray >PlutusTx.makeLift &#39;&#39;State</span>
+   144    <span style=background-color:lightgray;color:gray ></span>
+   145    <span style=background-color:lightgray;color:gray ></span>
+   146    <span style=background-color:lightgray;color:gray ></span>
+   147    <span style=background-color:lightgray;color:gray ></span>
+   148    <span style=background-color:lightgray;color:gray >{-# INLINABLE query #-}</span>
+   149    <span style=background-color:lightgray;color:gray >query :: PaymentPubKeyHash -&gt; [PaymentPubKeyHash] -&gt; Bool</span>
+   150    <span style=background-color:lightgreen;color:black >query pkh [] = </span><span style=background-color:black;color:orangered >False</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   151    <span style=background-color:lightgreen;color:black >query pkh (x : l&#39;) = </span><span style=background-color:black;color:orangered >x </span><span style=background-color:lightgreen;color:black >== </span><span style=background-color:black;color:orangered >pkh </span><span style=background-color:lightgreen;color:black >|| </span><span style=background-color:lightgreen;color:black >(query </span><span style=background-color:black;color:orangered >pkh </span><span style=background-color:black;color:orangered >l&#39;)</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   152    <span style=background-color:lightgray;color:gray ></span>
+   153    <span style=background-color:lightgray;color:gray >{-# INLINABLE insert #-}</span>
+   154    <span style=background-color:lightgray;color:gray >insert :: PaymentPubKeyHash -&gt; [PaymentPubKeyHash] -&gt; [PaymentPubKeyHash]</span>
+   155    <span style=background-color:black;color:orangered >insert pkh [] = </span><span style=background-color:black;color:orangered >[</span><span style=background-color:black;color:orangered >pkh]</span><span style=background-color:black;color:orangered ></span><span style=background-color:black;color:orangered ></span><span style=background-color:lightgray;color:gray ></span>
+   156    <span style=background-color:black;color:orangered >insert pkh (x : l&#39;)</span><span style=background-color:lightgray;color:gray ></span>
+   157    <span style=background-color:black;color:orangered >  = </span><span style=background-color:black;color:orangered >if </span><span style=background-color:black;color:orangered >x </span><span style=background-color:black;color:orangered >== </span><span style=background-color:black;color:orangered >pkh </span><span style=background-color:black;color:orangered >then </span><span style=background-color:black;color:orangered >x </span><span style=background-color:black;color:orangered >: </span><span style=background-color:black;color:orangered >l&#39; </span><span style=background-color:black;color:orangered >else </span><span style=background-color:black;color:orangered >x </span><span style=background-color:black;color:orangered >: </span><span style=background-color:black;color:orangered >insert </span><span style=background-color:black;color:orangered >pkh </span><span style=background-color:black;color:orangered >l&#39;</span><span style=background-color:lightgray;color:gray ></span>
+   158    <span style=background-color:lightgray;color:gray ></span>
+   159    <span style=background-color:lightgray;color:gray >{-# INLINABLE count #-}</span>
+   160    <span style=background-color:lightgray;color:gray >count :: [PaymentPubKeyHash] -&gt; Integer</span>
+   161    <span style=background-color:black;color:orangered >count [] = </span><span style=background-color:black;color:orangered >0</span><span style=background-color:black;color:orangered ></span><span style=background-color:lightgray;color:gray ></span>
+   162    <span style=background-color:black;color:orangered >count (x : l) = </span><span style=background-color:black;color:orangered >1 + count </span><span style=background-color:black;color:orangered >l</span><span style=background-color:lightgray;color:gray ></span>
+   163    <span style=background-color:lightgray;color:gray ></span>
+   164    <span style=background-color:lightgray;color:gray >data Params = Params {</span><span style=background-color:black;color:orangered >authSigs </span><span style=background-color:lightgray;color:gray >:: [PaymentPubKeyHash], </span><span style=background-color:lightgreen;color:black >nr </span><span style=background-color:lightgray;color:gray >:: Integer}</span>
+   165    <span style=background-color:lightgray;color:gray >    deriving (Show)</span>
+   166    <span style=background-color:lightgray;color:gray ></span>
+   167    <span style=background-color:lightgray;color:gray >PlutusTx.unstableMakeIsData &#39;&#39;Params</span>
+   168    <span style=background-color:lightgray;color:gray >PlutusTx.makeLift &#39;&#39;Params</span>
+   169    <span style=background-color:lightgray;color:gray ></span>
+.
+.
+.
+   182    <span style=background-color:lightgray;color:gray >--getLovelace . fromValue</span>
+   183    <span style=background-color:lightgray;color:gray ></span>
+   184    <span style=background-color:lightgray;color:gray ></span>
+   185    <span style=background-color:lightgray;color:gray >{-# INLINABLE getVal #-}</span>
+   186    <span style=background-color:lightgray;color:gray >getVal :: TxOut -&gt; AssetClass -&gt; Integer</span>
+   187    <span style=background-color:lightgreen;color:black >getVal ip ac = assetClassValueOf </span><span style=background-color:black;color:orangered >(txOutValue ip) </span><span style=background-color:lightgreen;color:black >ac</span><span style=background-color:lightgray;color:gray ></span>
+   188    <span style=background-color:lightgray;color:gray ></span>
+   189    <span style=background-color:lightgray;color:gray ></span>
+   190    <span style=background-color:lightgray;color:gray ></span>
+   191    <span style=background-color:lightgray;color:gray ></span>
+   192    <span style=background-color:lightgray;color:gray >------------------------------------------------------------------------------------------------------------------------------</span>
+.
+.
+.
+   199    <span style=background-color:lightgray;color:gray >info :: ScriptContext -&gt; TxInfo</span>
+   200    <span style=background-color:lightgray;color:gray >info ctx = scriptContextTxInfo ctx</span>
+   201    <span style=background-color:lightgray;color:gray ></span>
+   202    <span style=background-color:lightgray;color:gray >{-# INLINABLE ownInput #-}</span>
+   203    <span style=background-color:lightgray;color:gray >ownInput :: ScriptContext -&gt; TxOut</span>
+   204    <span style=background-color:black;color:orangered >ownInput ctx = case findOwnInput </span><span style=background-color:black;color:orangered >ctx </span><span style=background-color:black;color:orangered >of</span><span style=background-color:lightgray;color:gray ></span>
+   205    <span style=background-color:black;color:orangered >        Nothing -&gt; </span><span style=background-color:black;color:orangered >traceError &quot;state input missing&quot;</span><span style=background-color:black;color:orangered ></span><span style=background-color:lightgray;color:gray ></span>
+   206    <span style=background-color:black;color:orangered >        Just i  -&gt; </span><span style=background-color:black;color:orangered >txInInfoResolved i</span><span style=background-color:lightgray;color:gray ></span>
+   207    <span style=background-color:lightgray;color:gray ></span>
+   208    <span style=background-color:lightgray;color:gray >{-# INLINABLE ownOutput #-}</span>
+   209    <span style=background-color:lightgray;color:gray >ownOutput :: ScriptContext -&gt; TxOut</span>
+   210    <span style=background-color:black;color:orangered >ownOutput ctx = case getContinuingOutputs </span><span style=background-color:black;color:orangered >ctx </span><span style=background-color:black;color:orangered >of</span><span style=background-color:lightgray;color:gray ></span>
+   211    <span style=background-color:black;color:orangered >        [o] -&gt; </span><span style=background-color:black;color:orangered >o</span><span style=background-color:black;color:orangered ></span><span style=background-color:lightgray;color:gray ></span>
+   212    <span style=background-color:black;color:orangered >        _   -&gt; </span><span style=background-color:black;color:orangered >traceError &quot;expected exactly one SM output&quot;</span><span style=background-color:lightgray;color:gray ></span>
+   213    <span style=background-color:lightgray;color:gray ></span>
+   214    <span style=background-color:lightgray;color:gray >{-# INLINABLE smDatum #-}</span>
+   215    <span style=background-color:lightgray;color:gray >smDatum :: Maybe Datum -&gt; Maybe State</span>
+   216    <span style=background-color:black;color:orangered >smDatum md = do</span><span style=background-color:lightgray;color:gray ></span>
+   217    <span style=background-color:black;color:orangered >    Datum d &lt;- md</span><span style=background-color:lightgray;color:gray ></span>
+   218    <span style=background-color:black;color:orangered >    </span><span style=background-color:black;color:orangered >PlutusTx.fromBuiltinData d</span><span style=background-color:lightgray;color:gray ></span>
+   219    <span style=background-color:lightgray;color:gray ></span>
+   220    <span style=background-color:lightgray;color:gray >{-# INLINABLE outputDatum #-}</span>
+   221    <span style=background-color:lightgray;color:gray >outputDatum :: ScriptContext -&gt; State</span>
+   222    <span style=background-color:black;color:orangered >outputDatum ctx = case txOutDatum (ownOutput </span><span style=background-color:black;color:orangered >ctx)</span><span style=background-color:black;color:orangered > of</span><span style=background-color:lightgray;color:gray ></span>
+   223    <span style=background-color:black;color:orangered >        NoOutputDatum-&gt; </span><span style=background-color:black;color:orangered >traceError &quot;nt&quot;</span><span style=background-color:black;color:orangered ></span><span style=background-color:lightgray;color:gray ></span>
+   224    <span style=background-color:black;color:orangered >        OutputDatumHash dh -&gt; </span><span style=background-color:black;color:orangered >case smDatum $ findDatum </span><span style=background-color:black;color:orangered >dh </span><span style=background-color:black;color:orangered >(scriptContextTxInfo ctx) </span><span style=background-color:black;color:orangered >of</span><span style=background-color:lightgray;color:gray ></span>
+   225    <span style=background-color:black;color:orangered >            Nothing -&gt; </span><span style=background-color:black;color:orangered >traceError &quot;hs&quot;</span><span style=background-color:black;color:orangered ></span><span style=background-color:lightgray;color:gray ></span>
+   226    <span style=background-color:black;color:orangered >            Just d  -&gt; </span><span style=background-color:black;color:orangered >d</span><span style=background-color:black;color:orangered ></span><span style=background-color:lightgray;color:gray ></span>
+   227    <span style=background-color:black;color:orangered >        OutputDatum d -&gt; </span><span style=background-color:black;color:orangered >PlutusTx.unsafeFromBuiltinData </span><span style=background-color:black;color:orangered >(getDatum d)</span><span style=background-color:lightgray;color:gray ></span>
+   228    <span style=background-color:lightgray;color:gray ></span>
+   229    <span style=background-color:lightgray;color:gray >{-# INLINABLE newLabel #-}</span>
+   230    <span style=background-color:lightgray;color:gray >newLabel :: ScriptContext -&gt; Label</span>
+   231    <span style=background-color:black;color:orangered >newLabel ctx = label (outputDatum </span><span style=background-color:black;color:orangered >ctx)</span><span style=background-color:black;color:orangered ></span><span style=background-color:lightgray;color:gray ></span>
+   232    <span style=background-color:lightgray;color:gray ></span>
+   233    <span style=background-color:lightgray;color:gray >{-# INLINABLE oldValue #-}</span>
+   234    <span style=background-color:lightgray;color:gray >oldValue :: ScriptContext -&gt; Value</span>
+   235    <span style=background-color:black;color:orangered >oldValue ctx = txOutValue (ownInput </span><span style=background-color:black;color:orangered >ctx)</span><span style=background-color:black;color:orangered ></span><span style=background-color:lightgray;color:gray ></span>
+   236    <span style=background-color:lightgray;color:gray ></span>
+   237    <span style=background-color:lightgray;color:gray >{-# INLINABLE newValue #-}</span>
+   238    <span style=background-color:lightgray;color:gray >newValue :: ScriptContext -&gt; Value</span>
+   239    <span style=background-color:black;color:orangered >newValue ctx = txOutValue (ownOutput </span><span style=background-color:black;color:orangered >ctx)</span><span style=background-color:black;color:orangered ></span><span style=background-color:lightgray;color:gray ></span>
+   240    <span style=background-color:lightgray;color:gray ></span>
+   241    <span style=background-color:lightgray;color:gray >{-# INLINABLE expired #-}</span>
+   242    <span style=background-color:lightgray;color:gray >expired :: Deadline -&gt; TxInfo -&gt; Bool</span>
+   243    <span style=background-color:lightgreen;color:black >expired d info = Interval.before </span><span style=background-color:black;color:orangered >((POSIXTime {getPOSIXTime = d})) </span><span style=background-color:lightgreen;color:black >(txInfoValidRange info)</span><span style=background-color:lightgray;color:gray ></span>
+   244    <span style=background-color:lightgray;color:gray ></span>
+   245    <span style=background-color:lightgray;color:gray >{-# INLINABLE checkSigned #-}</span>
+   246    <span style=background-color:lightgray;color:gray >checkSigned :: PaymentPubKeyHash -&gt; ScriptContext -&gt; Bool</span>
+   247    <span style=background-color:lightgreen;color:black >checkSigned pkh ctx = txSignedBy </span><span style=background-color:black;color:orangered >(scriptContextTxInfo ctx) </span><span style=background-color:black;color:orangered >(unPaymentPubKeyHash pkh)</span><span style=background-color:lightgray;color:gray ></span>
+   248    <span style=background-color:lightgray;color:gray ></span>
+   249    <span style=background-color:lightgray;color:gray >{-# INLINABLE checkPayment #-}</span>
+   250    <span style=background-color:lightgray;color:gray >checkPayment :: PaymentPubKeyHash -&gt; Value -&gt; TxInfo -&gt; Bool</span>
+   251    <span style=background-color:lightgreen;color:black >checkPayment pkh v info = case </span><span style=background-color:black;color:orangered >filter </span><span style=background-color:white;color:black >(\i -&gt; (</span><span style=background-color:black;color:orangered >txOutAddress i </span><span style=background-color:white;color:black >== </span><span style=background-color:black;color:orangered >(pubKeyHashAddress </span><span style=background-color:black;color:orangered >(unPaymentPubKeyHash pkh))</span><span style=background-color:black;color:orangered >)</span><span style=background-color:white;color:black >) </span><span style=background-color:black;color:orangered >(txInfoOutputs info) </span><span style=background-color:lightgreen;color:black >of</span><span style=background-color:lightgray;color:gray ></span>
+   252    <span style=background-color:lightgreen;color:black >    os -&gt; any </span><span style=background-color:lightgreen;color:black >(\o -&gt; </span><span style=background-color:black;color:orangered >txOutValue o </span><span style=background-color:lightgreen;color:black >== </span><span style=background-color:black;color:orangered >v)</span><span style=background-color:lightgreen;color:black > </span><span style=background-color:black;color:orangered >os</span><span style=background-color:lightgray;color:gray ></span>
+   253    <span style=background-color:lightgray;color:gray ></span>
+   254    <span style=background-color:lightgray;color:gray >-- &lt;&gt; (lovelaceValue minVal)</span>
+   255    <span style=background-color:lightgray;color:gray ></span>
+   256    <span style=background-color:lightgray;color:gray >{-# INLINABLE agdaValidator #-}</span>
+   257    <span style=background-color:lightgray;color:gray >agdaValidator :: Params -&gt; Label -&gt; Input -&gt; ScriptContext -&gt; Bool</span>
+   258    <span style=background-color:lightgreen;color:black >agdaValidator param oldLabel red ctx</span><span style=background-color:lightgray;color:gray ></span>
+   259    <span style=background-color:lightgreen;color:black >  = case oldLabel of</span><span style=background-color:lightgray;color:gray ></span>
+   260    <span style=background-color:lightgreen;color:black >        Collecting v pkh d sigs -&gt; </span><span style=background-color:lightgreen;color:black >case red of</span><span style=background-color:lightgray;color:gray ></span>
+   261    <span style=background-color:lightgreen;color:black >                                       Propose _ _ _ -&gt; </span><span style=background-color:black;color:orangered >False</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   262    <span style=background-color:lightgreen;color:black >                                       Add sig -&gt; </span><span style=background-color:lightgreen;color:black >checkSigned </span><span style=background-color:black;color:orangered >sig </span><span style=background-color:black;color:orangered >ctx </span><span style=background-color:lightgreen;color:black >&amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   263    <span style=background-color:lightgreen;color:black >                                                    </span><span style=background-color:lightgreen;color:black >query </span><span style=background-color:black;color:orangered >sig </span><span style=background-color:black;color:orangered >(authSigs param) </span><span style=background-color:lightgreen;color:black >&amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   264    <span style=background-color:lightgreen;color:black >                                                      </span><span style=background-color:lightgreen;color:black >case newLabel </span><span style=background-color:black;color:orangered >ctx </span><span style=background-color:lightgreen;color:black >of</span><span style=background-color:lightgray;color:gray ></span>
+   265    <span style=background-color:lightgreen;color:black >                                                          Holding -&gt; </span><span style=background-color:black;color:orangered >False</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   266    <span style=background-color:lightgreen;color:black >                                                          Collecting v&#39; pkh&#39; d&#39; sigs&#39; -&gt; </span><span style=background-color:black;color:orangered >v </span><span style=background-color:lightgreen;color:black >== </span><span style=background-color:black;color:orangered >v&#39; </span><span style=background-color:lightgreen;color:black >&amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   267    <span style=background-color:lightgreen;color:black >                                                                                           </span><span style=background-color:black;color:orangered >pkh </span><span style=background-color:lightgreen;color:black >==</span><span style=background-color:lightgray;color:gray ></span>
+   268    <span style=background-color:lightgreen;color:black >                                                                                             </span><span style=background-color:black;color:orangered >pkh&#39;</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   269    <span style=background-color:lightgreen;color:black >                                                                                             &amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   270    <span style=background-color:lightgreen;color:black >                                                                                             </span><span style=background-color:black;color:orangered >d </span><span style=background-color:lightgreen;color:black >== </span><span style=background-color:black;color:orangered >d&#39;</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   271    <span style=background-color:lightgreen;color:black >                                                                                               &amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   272    <span style=background-color:lightgreen;color:black >                                                                                               </span><span style=background-color:black;color:orangered >sigs&#39;</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   273    <span style=background-color:lightgreen;color:black >                                                                                                 ==</span><span style=background-color:lightgray;color:gray ></span>
+   274    <span style=background-color:lightgreen;color:black >                                                                                                 </span><span style=background-color:black;color:orangered >insert</span><span style=background-color:lightgray;color:gray ></span>
+   275    <span style=background-color:black;color:orangered >                                                                                                   </span><span style=background-color:black;color:orangered >sig</span><span style=background-color:black;color:orangered ></span><span style=background-color:lightgray;color:gray ></span>
+   276    <span style=background-color:black;color:orangered >                                                                                                   </span><span style=background-color:black;color:orangered >sigs</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   277    <span style=background-color:lightgreen;color:black >                                       Pay -&gt; </span><span style=background-color:lightgreen;color:black >count </span><span style=background-color:black;color:orangered >sigs </span><span style=background-color:lightgreen;color:black >&gt;= </span><span style=background-color:lightgreen;color:black >nr param </span><span style=background-color:lightgreen;color:black >&amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   278    <span style=background-color:lightgreen;color:black >                                                </span><span style=background-color:lightgreen;color:black >case newLabel </span><span style=background-color:black;color:orangered >ctx </span><span style=background-color:lightgreen;color:black >of</span><span style=background-color:lightgray;color:gray ></span>
+   279    <span style=background-color:lightgreen;color:black >                                                    Holding -&gt; </span><span style=background-color:lightgreen;color:black >checkPayment </span><span style=background-color:black;color:orangered >pkh </span><span style=background-color:black;color:orangered >v</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   280    <span style=background-color:lightgreen;color:black >                                                                 </span><span style=background-color:black;color:orangered >(scriptContextTxInfo ctx)</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   281    <span style=background-color:lightgreen;color:black >                                                                 &amp;&amp; </span><span style=background-color:black;color:orangered >oldValue </span><span style=background-color:black;color:orangered >ctx </span><span style=background-color:lightgreen;color:black >== </span><span style=background-color:black;color:orangered >newValue </span><span style=background-color:black;color:orangered >ctx </span><span style=background-color:black;color:orangered >&lt;&gt; </span><span style=background-color:black;color:orangered >v</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   282    <span style=background-color:lightgreen;color:black >                                                    Collecting _ _ _ _ -&gt; </span><span style=background-color:black;color:orangered >False</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   283    <span style=background-color:lightgreen;color:black >                                       Cancel -&gt; </span><span style=background-color:lightgreen;color:black >case newLabel </span><span style=background-color:black;color:orangered >ctx </span><span style=background-color:lightgreen;color:black >of</span><span style=background-color:lightgray;color:gray ></span>
+   284    <span style=background-color:lightgreen;color:black >                                                     Holding -&gt; </span><span style=background-color:lightgreen;color:black >expired </span><span style=background-color:black;color:orangered >d </span><span style=background-color:black;color:orangered >(scriptContextTxInfo ctx)</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   285    <span style=background-color:lightgreen;color:black >                                                     Collecting _ _ _ _ -&gt; </span><span style=background-color:black;color:orangered >False</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   286    <span style=background-color:lightgreen;color:black >        Holding -&gt; </span><span style=background-color:lightgreen;color:black >case red of</span><span style=background-color:lightgray;color:gray ></span>
+   287    <span style=background-color:lightgreen;color:black >                       Propose v pkh d -&gt; </span><span style=background-color:lightgreen;color:black >geq </span><span style=background-color:black;color:orangered >(oldValue </span><span style=background-color:black;color:orangered >ctx)</span><span style=background-color:black;color:orangered > </span><span style=background-color:black;color:orangered >v </span><span style=background-color:lightgreen;color:black >&amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   288    <span style=background-color:lightgreen;color:black >                                            </span><span style=background-color:lightgreen;color:black >case newLabel </span><span style=background-color:black;color:orangered >ctx </span><span style=background-color:lightgreen;color:black >of</span><span style=background-color:lightgray;color:gray ></span>
+   289    <span style=background-color:lightgreen;color:black >                                                Holding -&gt; </span><span style=background-color:black;color:orangered >False</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   290    <span style=background-color:lightgreen;color:black >                                                Collecting v&#39; pkh&#39; d&#39; sigs&#39; -&gt; </span><span style=background-color:black;color:orangered >v </span><span style=background-color:lightgreen;color:black >== </span><span style=background-color:black;color:orangered >v&#39; </span><span style=background-color:lightgreen;color:black >&amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   291    <span style=background-color:lightgreen;color:black >                                                                                 </span><span style=background-color:black;color:orangered >pkh </span><span style=background-color:lightgreen;color:black >== </span><span style=background-color:black;color:orangered >pkh&#39; </span><span style=background-color:lightgreen;color:black >&amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   292    <span style=background-color:lightgreen;color:black >                                                                                   </span><span style=background-color:black;color:orangered >d </span><span style=background-color:lightgreen;color:black >== </span><span style=background-color:black;color:orangered >d&#39; </span><span style=background-color:lightgreen;color:black >&amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   293    <span style=background-color:lightgreen;color:black >                                                                                     </span><span style=background-color:black;color:orangered >sigs&#39; </span><span style=background-color:lightgreen;color:black >== </span><span style=background-color:black;color:orangered >[]</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   294    <span style=background-color:lightgreen;color:black >                       Add _ -&gt; </span><span style=background-color:black;color:orangered >False</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   295    <span style=background-color:lightgreen;color:black >                       Pay -&gt; </span><span style=background-color:black;color:orangered >False</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   296    <span style=background-color:lightgreen;color:black >                       Cancel -&gt; </span><span style=background-color:black;color:orangered >False</span><span style=background-color:lightgray;color:gray ></span>
+   297    <span style=background-color:lightgray;color:gray ></span>
+   298    <span style=background-color:lightgray;color:gray ></span>
+   299    <span style=background-color:lightgray;color:gray >--SM Validator</span>
+   300    <span style=background-color:lightgray;color:gray >{-# INLINABLE mkValidator #-}</span>
+   301    <span style=background-color:lightgray;color:gray >mkValidator :: Params -&gt; State -&gt; Input -&gt; ScriptContext -&gt; Bool</span>
+   302    <span style=background-color:lightgreen;color:black >mkValidator param st red ctx =</span><span style=background-color:lightgray;color:gray ></span>
+   303    <span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   304    <span style=background-color:lightgreen;color:black >    traceIfFalse &quot;token missing from input&quot; </span><span style=background-color:lightgreen;color:black >(getVal </span><span style=background-color:black;color:orangered >(ownInput </span><span style=background-color:black;color:orangered >ctx)</span><span style=background-color:black;color:orangered > </span><span style=background-color:lightgreen;color:black >(tToken st)  == </span><span style=background-color:lightgreen;color:black >1)</span><span style=background-color:lightgreen;color:black > </span><span style=background-color:lightgreen;color:black >                &amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   305    <span style=background-color:lightgreen;color:black >    </span><span style=background-color:lightgreen;color:black >traceIfFalse &quot;token missing from output&quot; </span><span style=background-color:lightgreen;color:black >(getVal </span><span style=background-color:black;color:orangered >(ownOutput </span><span style=background-color:black;color:orangered >ctx)</span><span style=background-color:black;color:orangered > </span><span style=background-color:lightgreen;color:black >(tToken st) == </span><span style=background-color:lightgreen;color:black >1)</span><span style=background-color:lightgreen;color:black > </span><span style=background-color:lightgreen;color:black >               &amp;&amp;</span><span style=background-color:lightgray;color:gray ></span>
+   306    <span style=background-color:lightgreen;color:black >    </span><span style=background-color:lightgreen;color:black >traceIfFalse &quot;failed Validation&quot; </span><span style=background-color:lightgreen;color:black >(agdaValidator </span><span style=background-color:black;color:orangered >param </span><span style=background-color:black;color:orangered >(label st) </span><span style=background-color:black;color:orangered >red </span><span style=background-color:black;color:orangered >ctx)</span><span style=background-color:lightgreen;color:black ></span><span style=background-color:lightgray;color:gray ></span>
+   307    <span style=background-color:lightgray;color:gray ></span>
+   308    <span style=background-color:lightgray;color:gray >{-(case (agdaValidator param (label st) red ctx) of </span>
+   309    <span style=background-color:lightgray;color:gray >      True -&gt; True</span>
+   310    <span style=background-color:lightgray;color:gray >      False -&gt; (traceError &quot;failed Validation&quot;))-}</span>
+   311    <span style=background-color:lightgray;color:gray >--traceIfFalse &quot;failed validation&quot; False --</span>
+.
+.
+.
+   678    <span style=background-color:lightgray;color:gray >  void $ E.submitTxConfirmed utxoIndex wallet [privateKey] utx</span>
+   679    <span style=background-color:lightgray;color:gray ></span>
+   680    <span style=background-color:lightgray;color:gray >-}</span>
+   681    <span style=background-color:lightgray;color:gray ></span>
+   682    <span style=background-color:lightgray;color:gray >covIdx :: CoverageIndex</span>
+   683    <span style=background-color:lightgray;color:gray >covIdx = getCovIdx $$</span><span style=background-color:black;color:orangered >(PlutusTx.compile [||mkValidator||])</span><span style=background-color:lightgray;color:gray ></span>
+</pre></body>

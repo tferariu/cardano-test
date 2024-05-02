@@ -19,8 +19,10 @@
 module Spec.MultiSig (
   
   tests,
-  {-prop_Escrow,
-  prop_Escrow_DoubleSatisfaction,
+  prop_MultiSig,
+  prop_Check,
+  checkPropMultiSigWithCoverage,
+  {-prop_Escrow_DoubleSatisfaction,
   prop_FinishEscrow,
   prop_observeEscrow,
   prop_NoLockedFunds,
@@ -214,6 +216,10 @@ genTT = QC.elements [tt]
 
 beginningOfTime :: Integer
 beginningOfTime = 1596059091000
+{-
+curSlot <- viewModelState currentSlot
+      let deadline = toSlotNo . TimeSlot.posixTimeToEnclosingSlot lottoSlotConfig
+                     $ TimeSlot.nominalDiffTimeToPOSIXTime (duration lottoSetup)-}
 
 instance ContractModel MultiSigModel where
   data Action MultiSigModel
@@ -243,6 +249,8 @@ instance ContractModel MultiSigModel where
       phase .= Collecting
       paymentValue .= v
       paymentTarget .= Just w2
+--      curSlot <- viewModelState currentSlot
+--      endSlot .= curSlot + deadline
       deadline .= Just d
       wait 1
     Add w -> do
@@ -269,6 +277,11 @@ instance ContractModel MultiSigModel where
       paymentValue .= mempty
       wait 1
     Cancel w -> do
+      phase .= Holding
+      actualSignatories .= []
+      paymentTarget .= Nothing
+      paymentValue .= mempty
+      deadline .= Nothing
       wait 1
     Start w v tt' -> do
       phase .= Holding
@@ -280,7 +293,7 @@ instance ContractModel MultiSigModel where
 
   precondition s a = case a of
 			Propose w1 v w2 d -> currentPhase == Holding && (currentValue `geq` v)
-			Add w -> currentPhase == Collecting && (elem w sigs) && not (elem w actualSigs)
+			Add w -> currentPhase == Collecting && (elem w sigs) -- && not (elem w actualSigs)
 			Pay w -> currentPhase == Collecting && ((length actualSigs) >= (fromIntegral min))
 			Cancel w -> currentPhase == Collecting && True --(s ^. currentSlot . to fromCardanoSlotNo > s ^. contractState . refundSlot)
 			Start w v tt' -> currentPhase == Initial
@@ -320,7 +333,7 @@ instance ContractModel MultiSigModel where
 											   <*> (Ada.lovelaceValueOf
                                                    <$> choose (Ada.getLovelace Ledger.minAdaTxOutEstimated, valueOf amount Ada.adaSymbol Ada.adaToken))
 											   <*> genWallet
-											   <*> chooseInteger (beginningOfTime, 159605910001))
+											   <*> chooseInteger (1, 159900000001))
 							    , (1, Add <$> genWallet)
 							    , (1, Pay <$> genWallet)
 							    , (1, Cancel <$> genWallet)
@@ -335,7 +348,11 @@ instance ContractModel MultiSigModel where
 
 
 instance RunModel MultiSigModel E.EmulatorM where
-  perform _ cmd _ = lift $ voidCatch $ act cmd
+  perform _ cmd _ = lift $ void $ act cmd
+  
+{-
+instance RunModel MultiSigModel E.EmulatorM where
+  perform _ cmd _ = lift $ voidCatch $ act cmd-}
 
 voidCatch m = catchError (void m) (\ _ -> pure ())
 
@@ -346,7 +363,7 @@ tnC :: Value.AssetName
 tnC = AssetName "ThreadToken"
 
 defInitialDist :: Map Ledger.CardanoAddress Value.Value
-defInitialDist = Map.fromList $ (, (Value.lovelaceValueOf 100000000000 <> 
+defInitialDist = Map.fromList $ (, (Value.lovelaceValueOf 99999900000000000 <> 
                  Value.singleton currC tnC 1)) <$> E.knownAddresses
 
 options :: E.Options MultiSigModel
@@ -403,6 +420,25 @@ act = \case
 
 prop_MultiSig :: Actions MultiSigModel -> Property
 prop_MultiSig = E.propRunActionsWithOptions options
+
+simpleVestTest :: DL MultiSigModel ()
+simpleVestTest = do
+          action $ Start 1 (Ada.adaValueOf 100) tt
+          action $ Propose 2 (Ada.adaValueOf 10) 3 111111111111111111111111111
+          action $ Add 4
+          action $ Add 4
+          action $ Add 5
+          action $ Add 4
+          action $ Cancel 2
+
+prop_Check :: QC.Property
+prop_Check = QC.withMaxSuccess 1 $ forAllDL simpleVestTest prop_MultiSig
+
+checkPropMultiSigWithCoverage :: IO ()
+checkPropMultiSigWithCoverage = do
+  cr <-
+    E.quickCheckWithCoverage QC.stdArgs options $ QC.withMaxSuccess 100 . E.propRunActionsWithOptions
+  writeCoverageReport "MultiSig" cr
 
 tests :: TestTree
 tests =
@@ -490,6 +526,7 @@ tests =
           act $ Add 4
           act $ Pay 2
 	, testProperty "QuickCheck ContractModel" prop_MultiSig
+	, testProperty "QuickCheck CancelDL" prop_Check
     {-, checkPredicateOptions
         options
         "can redeem even if more money than required has been paid in"

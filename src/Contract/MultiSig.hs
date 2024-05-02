@@ -50,12 +50,15 @@ import Control.Monad.Except (catchError, throwError)
 import Control.Monad.RWS.Class (asks)
 import Data.Map qualified as Map
 
+import Data.Set qualified as Set
+import PlutusCore qualified
+
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import PlutusTx (ToData)
 import PlutusTx qualified
 import PlutusTx.Code (getCovIdx)
-import PlutusTx.Coverage (CoverageIndex)
+import PlutusTx.Coverage (CoverageIndex, addCoverageMetadata, Metadata(..))
 import PlutusTx.Prelude (traceError, traceIfFalse)
 import PlutusTx.Prelude qualified as PlutusTx
 import PlutusTx.Prelude --(Eq, Bool, Integer)
@@ -327,6 +330,26 @@ smTypedValidator = go
 
 mkAddress :: Params -> Ledger.CardanoAddress
 mkAddress = validatorCardanoAddress testnet . smTypedValidator
+
+
+covIdx :: CoverageIndex
+covIdx = getCovIdx $$(PlutusTx.compile [||mkValidator||])
+
+{-
+allNonFailLocations :: HasCallStack => PlutusTx.CompiledCodeIn PlutusCore.DefaultUni PlutusCore.DefaultFun a -> Set CoverageAnnotation
+allNonFailLocations = uncurry allLocations . interpCode
+
+computeRefinedCoverageIndex :: PlutusTx.CompiledCodeIn PlutusCore.DefaultUni PlutusCore.DefaultFun a -> CoverageIndex
+computeRefinedCoverageIndex cc =
+    foldr (flip addCoverageMetadata IgnoredAnnotation) covIdx (Set.toList ignoredLocs)
+  where
+    covIdx        = getCovIdx cc
+    importantLocs = allNonFailLocations cc
+    ignoredLocs   = covIdx ^. coverageMetadata . to Map.keysSet . to (`Set.difference` importantLocs)
+
+covIdx :: CoverageIndex
+covIdx = computeRefinedCoverageIndex $$(PlutusTx.compile [|| \a b c d -> check (mkValidator a b c d) ||])-}
+
 
 -------------------------------------------------------------------------
 
@@ -679,8 +702,6 @@ start wallet privateKey params v tt = do
 
 -}
 
-covIdx :: CoverageIndex
-covIdx = getCovIdx $$(PlutusTx.compile [||mkValidator||])
 
 {-
 -----------------------------------------------------------------
