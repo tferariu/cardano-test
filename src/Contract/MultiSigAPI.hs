@@ -366,7 +366,7 @@ mkCancelTx params tt = do
 
     remainingOutputs = [ C.TxOut smAddress (toTxOutValue remainingValue) (toTxOutInlineDatum datum) C.ReferenceScriptNone ]
 
-    validityRange = toValidityRange slotConfig $ Interval.from (POSIXTime d) --{getPOSIXTime = d})
+    validityRange = toValidityRange slotConfig $ Interval.from (POSIXTime (d + 1000)) --{getPOSIXTime = d})
     redeemer = toHashableScriptData (Cancel)
     witnessHeader =
         C.toCardanoTxInScriptWitnessHeader

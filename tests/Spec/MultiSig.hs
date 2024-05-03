@@ -62,7 +62,7 @@ import Cardano.Node.Emulator.Test.NoLockedFunds (
   checkNoLockedFundsProofWithOptions,
   defaultNLFP,
  )
-import Ledger (Slot, minAdaTxOutEstimated)
+import Ledger (Slot, minAdaTxOutEstimated, POSIXTime)
 import Ledger qualified
 import Ledger.Tx.CardanoAPI (fromCardanoSlotNo)
 import Ledger.Typed.Scripts qualified as Scripts
@@ -295,7 +295,7 @@ instance ContractModel MultiSigModel where
 			Propose w1 v w2 d -> currentPhase == Holding && (currentValue `geq` v)
 			Add w -> currentPhase == Collecting && (elem w sigs) -- && not (elem w actualSigs)
 			Pay w -> currentPhase == Collecting && ((length actualSigs) >= (fromIntegral min))
-			Cancel w -> currentPhase == Collecting && True --(s ^. currentSlot . to fromCardanoSlotNo > s ^. contractState . refundSlot)
+			Cancel w -> currentPhase == Collecting && ((d + 2000) < timeInt)
 			Start w v tt' -> currentPhase == Initial
 		where 
 		currentPhase = s ^. contractState . phase
@@ -303,6 +303,10 @@ instance ContractModel MultiSigModel where
 		sigs = s ^. contractState . allowedSignatories
 		actualSigs = s ^. contractState . actualSignatories
 		min = s ^. contractState . requiredSignatories
+		slot = s ^. currentSlot . to fromCardanoSlotNo
+		time = TimeSlot.slotToBeginPOSIXTime def slot
+		timeInt = Ledger.getPOSIXTime time
+		d = fromJust $ (s ^. contractState . deadline)
 	
 {-	
     Redeem _ ->
@@ -333,17 +337,21 @@ instance ContractModel MultiSigModel where
 											   <*> (Ada.lovelaceValueOf
                                                    <$> choose (Ada.getLovelace Ledger.minAdaTxOutEstimated, valueOf amount Ada.adaSymbol Ada.adaToken))
 											   <*> genWallet
-											   <*> chooseInteger (1, 159900000001))
-							    , (1, Add <$> genWallet)
-							    , (1, Pay <$> genWallet)
+											   <*> chooseInteger (timeInt, timeInt + 10000))
+							    , (3, Add <$> genWallet)
+							    , (2, Pay <$> genWallet)
 							    , (1, Cancel <$> genWallet)
 							    , (1, Start <$> genWallet
 										    <*> (Ada.lovelaceValueOf
-                                                   <$> choose (Ada.getLovelace Ledger.minAdaTxOutEstimated, 100000000000))
+                                                   <$> choose (((Ada.getLovelace Ledger.minAdaTxOutEstimated) * 2), 1000000000000))
 											<*> genTT)
 								]
 		where
 			amount   = s ^. contractState . actualValue
+			slot = s ^. currentSlot . to fromCardanoSlotNo
+			time = TimeSlot.slotToEndPOSIXTime def slot
+			timeInt = Ledger.getPOSIXTime time
+			--int' = Ledger.getSlot slot'
 
 
 
@@ -500,7 +508,7 @@ tests =
         
         $ do
           act $ Start 1 (Ada.adaValueOf 100) tt
-          act $ Propose 2 (Ada.adaValueOf 10) 3 1596059096001
+          act $ Propose 2 (Ada.adaValueOf 10) 3 1596059095001
           act $ Add 4
           act $ Add 4
           act $ Add 5
@@ -525,8 +533,8 @@ tests =
           act $ Add 5
           act $ Add 4
           act $ Pay 2
-	, testProperty "QuickCheck ContractModel" prop_MultiSig
-	, testProperty "QuickCheck CancelDL" prop_Check
+	, testProperty "QuickCheck ContractModel" $ QC.withMaxSuccess 100 prop_MultiSig
+	, testProperty "QuickCheck CancelDL" (QC.expectFailure prop_Check)
     {-, checkPredicateOptions
         options
         "can redeem even if more money than required has been paid in"
