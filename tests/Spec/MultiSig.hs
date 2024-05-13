@@ -335,7 +335,7 @@ instance ContractModel MultiSigModel where
 --put token back in Start
   arbitraryAction s = frequency [ (1 , Propose <$> genWallet
 											   <*> (Ada.lovelaceValueOf
-                                                   <$> choose (Ada.getLovelace Ledger.minAdaTxOutEstimated, valueOf amount Ada.adaSymbol Ada.adaToken))
+                                                   <$> choose (((Ada.getLovelace Ledger.minAdaTxOutEstimated) * 2), valueOf amount Ada.adaSymbol Ada.adaToken))
 											   <*> genWallet
 											   <*> chooseInteger (timeInt, timeInt + 10000))
 							    , (3, Add <$> genWallet)
