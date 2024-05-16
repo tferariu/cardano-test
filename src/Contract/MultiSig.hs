@@ -96,6 +96,8 @@ import PlutusLedgerApi.V2.Tx hiding (TxId)--(OutputDatum (OutputDatum))
 
 import           Prelude              (Show (..), String)
 
+import PlutusCore.Version (plcVersion100)
+
 minVal :: Integer --Lovelace
 minVal = 2000000
 
@@ -334,6 +336,124 @@ mkAddress = validatorCardanoAddress testnet . smTypedValidator
 
 covIdx :: CoverageIndex
 covIdx = getCovIdx $$(PlutusTx.compile [||mkValidator||])
+
+-- Thread Token
+{-# INLINABLE mkPolicy #-}
+mkPolicy :: Address -> TxOutRef -> TokenName -> () -> ScriptContext -> Bool
+mkPolicy addr oref tn () ctx = traceIfFalse "UTxO not consumed"   hasUTxO                  &&
+                          traceIfFalse "wrong amount minted" checkMintedAmount        &&
+                          traceIfFalse "not initial state" checkDatum  
+  where
+    info :: TxInfo
+    info = scriptContextTxInfo ctx
+    
+    cs :: CurrencySymbol
+    cs = ownCurrencySymbol ctx
+
+    hasUTxO :: Bool
+    hasUTxO = any (\i -> txInInfoOutRef i == oref) $ txInfoInputs info
+
+    checkMintedAmount :: Bool
+    checkMintedAmount = case flattenValue (txInfoMint info) of
+        [(_, tn', amt)] -> tn' == tn && amt == 1
+        _               -> False
+      
+    scriptOutput :: TxOut
+    scriptOutput = case filter (\i -> (txOutAddress i == (addr))) (txInfoOutputs info) of
+    	[o] -> o
+    	_ -> traceError "not unique SM output"
+    
+    checkDatum :: Bool
+    checkDatum = case txOutDatum scriptOutput of 
+        NoOutputDatum-> traceError "nd"
+        OutputDatumHash dh -> case smDatum $ findDatum dh info of
+            Nothing -> traceError "nh"
+            Just d  -> True --tToken d == AssetClass (cs, tn) && cmap1 d == [] && cmap2 d == []
+        OutputDatum dat -> case PlutusTx.unsafeFromBuiltinData @State (getDatum dat) of
+            d -> True --tToken d == AssetClass (cs, tn) && cmap1 d == [] && cmap2 d == []
+            _ -> traceError "?"
+
+  --   mkMintingPolicy :: MyCustomRedeemer -> ScriptContext -> Bool
+  --   mkMintingPolicy _ _ = True
+  --
+  --   validator :: Plutus.Validator
+  --   validator = Plutus.mkMintingPolicyScript
+  --       $$(PlutusTx.compile [|| wrap ||])
+  --    where
+  --       wrap = mkUntypedMintingPolicy mkMintingPolicy
+
+{-
+
+mkMintingPolicyScript :: CompiledCode (BuiltinData -> BuiltinData -> ()) -> MintingPolicy
+mkMintingPolicyScript = MintingPolicy . Script . serialiseCompiledCode
+
+-- | Make a 'TypedValidator' from the 'CompiledCode' of a validator script and its wrapper.
+mkTypedValidator
+  :: CompiledCode (ValidatorType a)
+  -- ^ Validator script (compiled)
+  -> CompiledCode (ValidatorType a -> UntypedValidator)
+  -- ^ A wrapper for the compiled validator
+  -> TypedValidator a
+mkTypedValidator vc wrapper =
+  TypedValidator
+    { tvValidator = Versioned val PlutusV2
+    , tvValidatorHash = hsh
+    , tvForwardingMPS = Versioned mps PlutusV2
+    , tvForwardingMPSHash = Scripts.mintingPolicyHash mps
+    }
+  where
+    val = mkValidatorScript $ wrapper `unsafeApplyCode` vc
+    hsh = Scripts.validatorHash val
+    mps = MPS.mkForwardingMintingPolicy hsh
+
+-- | Make a 'TypedValidator' from the 'CompiledCode' of a parameterized validator script and its wrapper.
+mkTypedValidatorParam
+  :: forall a param
+   . (Lift DefaultUni param)
+  => CompiledCode (param -> ValidatorType a)
+  -- ^ Validator script (compiled)
+  -> CompiledCode (ValidatorType a -> UntypedValidator)
+  -- ^ A wrapper for the compiled validator
+  -> param
+  -- ^ The extra paramater for the validator script
+  -> TypedValidator a
+mkTypedValidatorParam vc wrapper param =
+  mkTypedValidator (vc `unsafeApplyCode` liftCode plcVersion100 param) wrapper
+
+
+mkForwardingMintingPolicy :: ValidatorHash -> MintingPolicy
+mkForwardingMintingPolicy vshsh =
+  mkMintingPolicyScript
+    $ $$( PlutusTx.compile
+            [||
+            \(hsh :: ValidatorHash) ->
+              mkUntypedMintingPolicy (forwardToValidator hsh)
+            ||]
+        )
+    `PlutusTx.unsafeApplyCode` PlutusTx.liftCode plcVersion100 vshsh
+
+{-# INLINEABLE forwardToValidator #-}
+forwardToValidator :: ValidatorHash -> () -> PV2.ScriptContext -> Bool
+forwardToValidator (ValidatorHash h) _ ScriptContext{scriptContextTxInfo = TxInfo{txInfoInputs}, scriptContextPurpose = Minting _} =
+  let checkHash TxOut{txOutAddress = Address{addressCredential = ScriptCredential (ScriptHash vh)}} = vh == h
+      checkHash _ = False
+   in any (checkHash . PV2.txInInfoResolved) txInfoInputs
+forwardToValidator _ _ _ = False
+
+policy :: Params -> TxOutRef -> TokenName -> Scripts.MintingPolicy
+policy p oref tn = Ledger.mkMintingPolicyScript $
+    $$(PlutusTx.compile [|| \addr' oref' tn' -> Scripts.mkUntypedMintingPolicy $ mkPolicy addr' oref' tn' ||])
+    `PlutusTx.applyCode`
+    PlutusTx.liftCode plcVersion100 (mkAddress p)
+    `PlutusTx.applyCode`
+    PlutusTx.liftCode plcVersion100 oref
+    `PlutusTx.applyCode`
+    PlutusTx.liftCode plcVersion100 tn
+ 
+curSymbol :: TxOutRef -> TokenName -> CurrencySymbol
+curSymbol oref tn = Scripts.scriptCurrencySymbol $ policy oref tn
+-}
+
 
 {-
 allNonFailLocations :: HasCallStack => PlutusTx.CompiledCodeIn PlutusCore.DefaultUni PlutusCore.DefaultFun a -> Set CoverageAnnotation
