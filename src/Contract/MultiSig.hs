@@ -42,6 +42,7 @@ module Contract.MultiSig (
   mkPolicy,
   policy,
   curSymbol,
+  mintingHash,
 
   -- * Coverage
   covIdx, 
@@ -390,6 +391,8 @@ policy p oref tn = Ledger.mkMintingPolicyScript $
 curSymbol :: Params -> TxOutRef -> TokenName -> CurrencySymbol
 curSymbol p oref tn = Ledger.scriptCurrencySymbol $ (Ledger.Versioned (policy p oref tn) Ledger.PlutusV2)
 
+mintingHash :: Params -> TxOutRef -> TokenName -> Ledger.MintingPolicyHash
+mintingHash p oref tn = Ledger.mintingPolicyHash $ (Ledger.Versioned (policy p oref tn) Ledger.PlutusV2)
 
 {-
 

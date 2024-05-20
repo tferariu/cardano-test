@@ -79,6 +79,9 @@ import Contract.MultiSig
 toTxOutValue :: Value -> C.TxOutValue C.BabbageEra
 toTxOutValue = either (error . show) C.toCardanoTxOutValue . C.toCardanoValue
 
+toLedgerValue :: Value -> Ledger.Value
+toLedgerValue = either (error . show) id . C.toCardanoValue
+
 toHashableScriptData :: (PlutusTx.ToData a) => a -> C.HashableScriptData
 toHashableScriptData = C.unsafeHashableScriptData . C.fromPlutusData . PlutusTx.toData
 
@@ -402,28 +405,51 @@ cancel wallet privateKey params tt = do
 -- either (error . show) C.toCardanoTxOutValue . C.toCardanoValue
 
 mkStartTx'
-  :: SlotConfig
-  -> Params
+  :: (E.MonadEmulator m)
+  => Params
+  -> Ledger.CardanoAddress
   -> Value
   -> AssetClass
-  -> (C.CardanoBuildTx, Ledger.UtxoIndex)
-mkStartTx' slotConfig params v tt =
+  -> m (C.CardanoBuildTx, Ledger.UtxoIndex)
+mkStartTx' params wallet v tt = do
+
+  slotConfig <- asks pSlotConfig
+  unspentOutputs <- E.utxosAt wallet
+
+  --this is probably wrong, but find some way to get a single utxo out
+  let utxo = case Map.toList (C.unUTxO unspentOutputs) of
+              [] -> throwError $ E.CustomError $ "no UTxOs" 
+              x:_ -> x
+
   let smAddress = mkAddress params
-      -- mintAddress = policy params 
       txOut = C.TxOut smAddress (toTxOutValue v) 
               (toTxOutInlineDatum (State {label = Holding, tToken = tt})) C.ReferenceScriptNone
       validityRange = toValidityRange slotConfig $ Interval.always
-      --mint = C.TxMintValue C.BabbageEra (either (error . show) (C.toCardanoValue (assetClassValue tt 1))) --C.BuildTx
+-- probably use some helper functions from https://github.com/IntersectMBO/cardano-node-emulator/blob/1e09173b74064bd5990d2d3e48af6510780ea349/plutus-ledger/src/Ledger/Tx/CardanoAPI.hs#L55
+      scriptWitnessPlaceholder = 
+        C.PlutusScriptWitness
+          C.PlutusScriptV1InBabbage
+          C.PlutusScriptV1
+          (C.PScript $ C.examplePlutusScriptAlwaysSucceeds C.WitCtxMint)
+          C.NoScriptDatumForMint
+          (C.unsafeHashableScriptData $ C.fromPlutusData $ toData () )
+          C.zeroExecutionUnits
+      
+      placeholder = Map.singleton (Ledger.policyId 
+                    (Ledger.Versioned (policy params (C.fromCardanoTxIn (fst utxo)) "ThreadToken") Ledger.PlutusV2)) 
+                    scriptWitnessPlaceholder
+      mint = C.TxMintValue C.MaryEraOnwardsBabbage (toLedgerValue (assetClassValue tt 1)) (C.BuildTxWith placeholder)
       utx =
         E.emptyTxBodyContent
           { C.txOuts = [txOut]
-          --, C.txMintValue = mint
+          , C.txMintValue = mint
           , C.txValidityLowerBound = fst validityRange
           , C.txValidityUpperBound = snd validityRange
           }
       utxoIndex = mempty
-   in (C.CardanoBuildTx utx, utxoIndex)
+   in pure (C.CardanoBuildTx utx, utxoIndex)
 
+-- (C.PolicyId (Ledger.getMintingPolicyHash (mintingHash params (C.fromCardanoTxIn (fst utxo)) "ThreadToken")))
 
 {-
 m(TxOut, TokenName)
@@ -440,7 +466,6 @@ mkStartTx
   -> (C.CardanoBuildTx, Ledger.UtxoIndex)
 mkStartTx slotConfig params v tt =
   let smAddress = mkAddress params
-      -- mintAddress = policy params 
       txOut = C.TxOut smAddress (toTxOutValue (v <> assetClassValue tt 1)) 
               (toTxOutInlineDatum (State {label = Holding, tToken = tt})) C.ReferenceScriptNone
       validityRange = toValidityRange slotConfig $ Interval.always
