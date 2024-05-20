@@ -39,6 +39,9 @@ module Contract.MultiSig (
   Deadline,
   Label (..),
   mkValidator,
+  mkPolicy,
+  policy,
+  curSymbol,
 
   -- * Coverage
   covIdx, 
@@ -333,6 +336,8 @@ smTypedValidator = go
 mkAddress :: Params -> Ledger.CardanoAddress
 mkAddress = validatorCardanoAddress testnet . smTypedValidator
 
+mkOtherAddress :: Params -> Address
+mkOtherAddress = V2.validatorAddress . smTypedValidator
 
 covIdx :: CoverageIndex
 covIdx = getCovIdx $$(PlutusTx.compile [||mkValidator||])
@@ -368,13 +373,49 @@ mkPolicy addr oref tn () ctx = traceIfFalse "UTxO not consumed"   hasUTxO       
         NoOutputDatum-> traceError "nd"
         OutputDatumHash dh -> case smDatum $ findDatum dh info of
             Nothing -> traceError "nh"
-            Just d  -> True --tToken d == AssetClass (cs, tn) && cmap1 d == [] && cmap2 d == []
+            Just d  -> tToken d == AssetClass (cs, tn) && label d == Holding
         OutputDatum dat -> case PlutusTx.unsafeFromBuiltinData @State (getDatum dat) of
-            d -> True --tToken d == AssetClass (cs, tn) && cmap1 d == [] && cmap2 d == []
+            d -> tToken d == AssetClass (cs, tn) && label d == Holding 
             _ -> traceError "?"
 
-  --   mkMintingPolicy :: MyCustomRedeemer -> ScriptContext -> Bool
-  --   mkMintingPolicy _ _ = True
+
+policy :: Params -> TxOutRef -> TokenName -> V2.MintingPolicy
+policy p oref tn = Ledger.mkMintingPolicyScript $
+    $$(PlutusTx.compile [|| \addr' oref' tn' -> Scripts.mkUntypedMintingPolicy $ mkPolicy addr' oref' tn' ||])
+    `PlutusTx.unsafeApplyCode` PlutusTx.liftCode plcVersion100 (mkOtherAddress p)
+    `PlutusTx.unsafeApplyCode` PlutusTx.liftCode plcVersion100 oref
+    `PlutusTx.unsafeApplyCode` PlutusTx.liftCode plcVersion100 tn
+
+
+curSymbol :: Params -> TxOutRef -> TokenName -> CurrencySymbol
+curSymbol p oref tn = Ledger.scriptCurrencySymbol $ (Ledger.Versioned (policy p oref tn) Ledger.PlutusV2)
+
+
+{-
+
+mkMintingPolicy :: () -> ScriptContext -> Bool
+mkMintingPolicy _ _ = True
+
+validator :: V2.MintingPolicy
+validator = Ledger.mkMintingPolicyScript
+     $$(PlutusTx.compile [|| wrap ||])
+  where
+     wrap = Scripts.mkUntypedMintingPolicy mkMintingPolicy
+
+
+mkForwardingMintingPolicy :: ValidatorHash -> MintingPolicy
+mkForwardingMintingPolicy vshsh =
+  mkMintingPolicyScript
+    $ $$( PlutusTx.compile
+            [||
+            \(hsh :: ValidatorHash) ->
+              mkUntypedMintingPolicy (forwardToValidator hsh)
+            ||]
+        )
+    `PlutusTx.unsafeApplyCode` PlutusTx.liftCode plcVersion100 vshsh-}
+
+
+  --   
   --
   --   validator :: Plutus.Validator
   --   validator = Plutus.mkMintingPolicyScript
@@ -432,6 +473,10 @@ mkForwardingMintingPolicy vshsh =
         )
     `PlutusTx.unsafeApplyCode` PlutusTx.liftCode plcVersion100 vshsh
 
+`PlutusTx.unsafeApplyCode` PlutusTx.liftCode plcVersion100 (mkAddress p)
+`PlutusTx.unsafeApplyCode` PlutusTx.liftCode plcVersion100 oref
+`PlutusTx.unsafeApplyCode` PlutusTx.liftCode plcVersion100 tn
+
 {-# INLINEABLE forwardToValidator #-}
 forwardToValidator :: ValidatorHash -> () -> PV2.ScriptContext -> Bool
 forwardToValidator (ValidatorHash h) _ ScriptContext{scriptContextTxInfo = TxInfo{txInfoInputs}, scriptContextPurpose = Minting _} =
@@ -450,6 +495,7 @@ policy p oref tn = Ledger.mkMintingPolicyScript $
     `PlutusTx.applyCode`
     PlutusTx.liftCode plcVersion100 tn
  
+
 curSymbol :: TxOutRef -> TokenName -> CurrencySymbol
 curSymbol oref tn = Scripts.scriptCurrencySymbol $ policy oref tn
 -}

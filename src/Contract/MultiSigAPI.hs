@@ -399,8 +399,39 @@ cancel wallet privateKey params tt = do
   (utx, utxoIndex) <- mkCancelTx params tt
   TxSuccess . getCardanoTxId <$> E.submitTxConfirmed utxoIndex wallet [privateKey] utx
 
+-- either (error . show) C.toCardanoTxOutValue . C.toCardanoValue
 
--- | Pay some money into the escrow contract.
+mkStartTx'
+  :: SlotConfig
+  -> Params
+  -> Value
+  -> AssetClass
+  -> (C.CardanoBuildTx, Ledger.UtxoIndex)
+mkStartTx' slotConfig params v tt =
+  let smAddress = mkAddress params
+      -- mintAddress = policy params 
+      txOut = C.TxOut smAddress (toTxOutValue v) 
+              (toTxOutInlineDatum (State {label = Holding, tToken = tt})) C.ReferenceScriptNone
+      validityRange = toValidityRange slotConfig $ Interval.always
+      --mint = C.TxMintValue C.BabbageEra (either (error . show) (C.toCardanoValue (assetClassValue tt 1))) --C.BuildTx
+      utx =
+        E.emptyTxBodyContent
+          { C.txOuts = [txOut]
+          --, C.txMintValue = mint
+          , C.txValidityLowerBound = fst validityRange
+          , C.txValidityUpperBound = snd validityRange
+          }
+      utxoIndex = mempty
+   in (C.CardanoBuildTx utx, utxoIndex)
+
+
+{-
+m(TxOut, TokenName)
+(resultTxOut , resultTokenName) <- genAction
+registerTxIn <- resultTxOut
+registerToken <- resultToken
+-}
+
 mkStartTx
   :: SlotConfig
   -> Params
@@ -409,6 +440,7 @@ mkStartTx
   -> (C.CardanoBuildTx, Ledger.UtxoIndex)
 mkStartTx slotConfig params v tt =
   let smAddress = mkAddress params
+      -- mintAddress = policy params 
       txOut = C.TxOut smAddress (toTxOutValue (v <> assetClassValue tt 1)) 
               (toTxOutInlineDatum (State {label = Holding, tToken = tt})) C.ReferenceScriptNone
       validityRange = toValidityRange slotConfig $ Interval.always
