@@ -404,6 +404,8 @@ cancel wallet privateKey params tt = do
 
 -- either (error . show) C.toCardanoTxOutValue . C.toCardanoValue
 
+-- mint
+
 mkStartTx'
   :: (E.MonadEmulator m)
   => Params
